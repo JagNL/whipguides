@@ -1,34 +1,319 @@
-import type { User, InsertUser, Listing, InsertListing, Group, InsertGroup, Post, InsertPost, Review, InsertReview } from "@shared/schema";
+import type {
+  User, InsertUser,
+  Listing, InsertListing,
+  Group, InsertGroup,
+  Post, InsertPost,
+  Review, InsertReview,
+} from "@shared/schema";
+import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
 
+// ============================================================
+// STORAGE INTERFACE
+// ============================================================
 export interface IStorage {
   // Users
-  getUser(id: number): User | undefined;
-  getUserByUsername(username: string): User | undefined;
-  createUser(user: InsertUser): User;
-  listUsers(): User[];
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByAuthId(authId: string): Promise<User | undefined>;
+  createUser(user: InsertUser & { authId?: string; email?: string }): Promise<User>;
+  updateUser(id: number, data: Partial<User>): Promise<User | undefined>;
+  listUsers(): Promise<User[]>;
 
   // Listings
-  getListing(id: number): Listing | undefined;
-  listListings(filters?: { category?: string; status?: string }): Listing[];
-  createListing(listing: InsertListing): Listing;
-  updateListingViews(id: number): void;
-  saveListing(id: number): void;
+  getListing(id: number): Promise<Listing | undefined>;
+  listListings(filters?: { category?: string; status?: string }): Promise<Listing[]>;
+  createListing(listing: InsertListing): Promise<Listing>;
+  updateListingViews(id: number): Promise<void>;
+  saveListing(id: number): Promise<void>;
+  updateListing(id: number, data: Partial<Listing>): Promise<Listing | undefined>;
+  deleteListing(id: number): Promise<void>;
 
   // Groups
-  getGroup(id: number): Group | undefined;
-  listGroups(category?: string): Group[];
-  createGroup(group: InsertGroup): Group;
+  getGroup(id: number): Promise<Group | undefined>;
+  listGroups(category?: string): Promise<Group[]>;
+  createGroup(group: InsertGroup): Promise<Group>;
 
   // Posts
-  getPost(id: number): Post | undefined;
-  listPostsByGroup(groupId: number): Post[];
-  createPost(post: InsertPost): Post;
+  getPost(id: number): Promise<Post | undefined>;
+  listPostsByGroup(groupId: number): Promise<Post[]>;
+  createPost(post: InsertPost): Promise<Post>;
 
   // Reviews
-  listReviewsForUser(userId: number): Review[];
-  createReview(review: InsertReview): Review;
+  listReviewsForUser(userId: number): Promise<Review[]>;
+  createReview(review: InsertReview): Promise<Review>;
 }
 
+// ============================================================
+// SUPABASE STORAGE (production)
+// ============================================================
+export class SupabaseStorage implements IStorage {
+  // Map camelCase schema fields to snake_case DB columns
+  private mapUser(row: any): User {
+    return {
+      id: row.id,
+      username: row.username,
+      displayName: row.display_name,
+      avatar: row.avatar,
+      bio: row.bio,
+      location: row.location,
+      memberSince: row.member_since,
+      rating: row.rating,
+      reviewCount: row.review_count,
+      verified: row.verified,
+      responseTime: row.response_time,
+    };
+  }
+
+  private mapListing(row: any): Listing {
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      price: row.price,
+      category: row.category,
+      condition: row.condition,
+      location: row.location,
+      year: row.year,
+      make: row.make,
+      model: row.model,
+      mileage: row.mileage,
+      images: row.images || [],
+      sellerId: row.seller_id,
+      status: row.status,
+      views: row.views,
+      saves: row.saves,
+      createdAt: row.created_at,
+      featured: row.featured,
+    };
+  }
+
+  private mapGroup(row: any): Group {
+    return {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      category: row.category,
+      coverImage: row.cover_image,
+      memberCount: row.member_count,
+      postCount: row.post_count,
+      ownerId: row.owner_id,
+      private: row.private,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapPost(row: any): Post {
+    return {
+      id: row.id,
+      groupId: row.group_id,
+      authorId: row.author_id,
+      content: row.content,
+      images: row.images || [],
+      likes: row.likes,
+      commentCount: row.comment_count,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapReview(row: any): Review {
+    return {
+      id: row.id,
+      reviewerId: row.reviewer_id,
+      revieweeId: row.reviewee_id,
+      listingId: row.listing_id,
+      rating: row.rating,
+      comment: row.comment,
+      type: row.type,
+      createdAt: row.created_at,
+    };
+  }
+
+  async getUser(id: number): Promise<User | undefined> {
+    const { data } = await supabaseAdmin.from("users").select("*").eq("id", id).single();
+    return data ? this.mapUser(data) : undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const { data } = await supabaseAdmin.from("users").select("*").eq("username", username).single();
+    return data ? this.mapUser(data) : undefined;
+  }
+
+  async getUserByAuthId(authId: string): Promise<User | undefined> {
+    const { data } = await supabaseAdmin.from("users").select("*").eq("auth_id", authId).single();
+    return data ? this.mapUser(data) : undefined;
+  }
+
+  async createUser(user: InsertUser & { authId?: string; email?: string }): Promise<User> {
+    const { data, error } = await supabaseAdmin.from("users").insert({
+      username: user.username,
+      display_name: user.displayName,
+      avatar: user.avatar,
+      bio: user.bio,
+      location: user.location,
+      member_since: user.memberSince || new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+      verified: false,
+      auth_id: user.authId,
+      email: user.email,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    return this.mapUser(data);
+  }
+
+  async updateUser(id: number, data: Partial<User>): Promise<User | undefined> {
+    const updates: any = {};
+    if (data.displayName) updates.display_name = data.displayName;
+    if (data.avatar) updates.avatar = data.avatar;
+    if (data.bio) updates.bio = data.bio;
+    if (data.location) updates.location = data.location;
+    if (data.rating !== undefined) updates.rating = data.rating;
+    if (data.reviewCount !== undefined) updates.review_count = data.reviewCount;
+    const { data: row } = await supabaseAdmin.from("users").update(updates).eq("id", id).select().single();
+    return row ? this.mapUser(row) : undefined;
+  }
+
+  async listUsers(): Promise<User[]> {
+    const { data } = await supabaseAdmin.from("users").select("*").limit(100);
+    return (data || []).map(this.mapUser.bind(this));
+  }
+
+  async getListing(id: number): Promise<Listing | undefined> {
+    const { data } = await supabaseAdmin.from("listings").select("*").eq("id", id).single();
+    return data ? this.mapListing(data) : undefined;
+  }
+
+  async listListings(filters?: { category?: string; status?: string }): Promise<Listing[]> {
+    let query = supabaseAdmin.from("listings").select("*").order("created_at", { ascending: false });
+    if (filters?.category) query = query.eq("category", filters.category);
+    if (filters?.status) query = query.eq("status", filters.status);
+    else query = query.eq("status", "active");
+    const { data } = await query.limit(100);
+    return (data || []).map(this.mapListing.bind(this));
+  }
+
+  async createListing(listing: InsertListing): Promise<Listing> {
+    const { data, error } = await supabaseAdmin.from("listings").insert({
+      title: listing.title,
+      description: listing.description,
+      price: listing.price,
+      category: listing.category,
+      condition: listing.condition,
+      location: listing.location,
+      year: listing.year,
+      make: listing.make,
+      model: listing.model,
+      mileage: listing.mileage,
+      images: listing.images || [],
+      seller_id: listing.sellerId,
+      status: listing.status || "active",
+      featured: listing.featured || false,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    return this.mapListing(data);
+  }
+
+  async updateListingViews(id: number): Promise<void> {
+    await supabaseAdmin.rpc("increment_views", { listing_id: id }).catch(() => {
+      // Fallback if RPC doesn't exist yet
+      supabaseAdmin.from("listings").select("views").eq("id", id).single().then(({ data }) => {
+        if (data) supabaseAdmin.from("listings").update({ views: (data.views || 0) + 1 }).eq("id", id);
+      });
+    });
+  }
+
+  async saveListing(id: number): Promise<void> {
+    const { data } = await supabaseAdmin.from("listings").select("saves").eq("id", id).single();
+    if (data) await supabaseAdmin.from("listings").update({ saves: (data.saves || 0) + 1 }).eq("id", id);
+  }
+
+  async updateListing(id: number, data: Partial<Listing>): Promise<Listing | undefined> {
+    const updates: any = {};
+    if (data.title) updates.title = data.title;
+    if (data.description) updates.description = data.description;
+    if (data.price !== undefined) updates.price = data.price;
+    if (data.status) updates.status = data.status;
+    if (data.images) updates.images = data.images;
+    const { data: row } = await supabaseAdmin.from("listings").update(updates).eq("id", id).select().single();
+    return row ? this.mapListing(row) : undefined;
+  }
+
+  async deleteListing(id: number): Promise<void> {
+    await supabaseAdmin.from("listings").delete().eq("id", id);
+  }
+
+  async getGroup(id: number): Promise<Group | undefined> {
+    const { data } = await supabaseAdmin.from("groups").select("*").eq("id", id).single();
+    return data ? this.mapGroup(data) : undefined;
+  }
+
+  async listGroups(category?: string): Promise<Group[]> {
+    let query = supabaseAdmin.from("groups").select("*").order("member_count", { ascending: false });
+    if (category) query = query.eq("category", category);
+    const { data } = await query.limit(50);
+    return (data || []).map(this.mapGroup.bind(this));
+  }
+
+  async createGroup(group: InsertGroup): Promise<Group> {
+    const { data, error } = await supabaseAdmin.from("groups").insert({
+      name: group.name,
+      description: group.description,
+      category: group.category,
+      cover_image: group.coverImage,
+      owner_id: group.ownerId,
+      private: group.private || false,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    return this.mapGroup(data);
+  }
+
+  async getPost(id: number): Promise<Post | undefined> {
+    const { data } = await supabaseAdmin.from("posts").select("*").eq("id", id).single();
+    return data ? this.mapPost(data) : undefined;
+  }
+
+  async listPostsByGroup(groupId: number): Promise<Post[]> {
+    const { data } = await supabaseAdmin.from("posts").select("*").eq("group_id", groupId).order("created_at", { ascending: false }).limit(50);
+    return (data || []).map(this.mapPost.bind(this));
+  }
+
+  async createPost(post: InsertPost): Promise<Post> {
+    const { data, error } = await supabaseAdmin.from("posts").insert({
+      group_id: post.groupId,
+      author_id: post.authorId,
+      content: post.content,
+      images: post.images || [],
+    }).select().single();
+    if (error) throw new Error(error.message);
+    return this.mapPost(data);
+  }
+
+  async listReviewsForUser(userId: number): Promise<Review[]> {
+    const { data } = await supabaseAdmin.from("reviews").select("*").eq("reviewee_id", userId).order("created_at", { ascending: false });
+    return (data || []).map(this.mapReview.bind(this));
+  }
+
+  async createReview(review: InsertReview): Promise<Review> {
+    const { data, error } = await supabaseAdmin.from("reviews").insert({
+      reviewer_id: review.reviewerId,
+      reviewee_id: review.revieweeId,
+      listing_id: review.listingId,
+      rating: review.rating,
+      comment: review.comment,
+      type: review.type,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    // Update reviewee's average rating
+    const { data: reviews } = await supabaseAdmin.from("reviews").select("rating").eq("reviewee_id", review.revieweeId);
+    if (reviews && reviews.length > 0) {
+      const avg = reviews.reduce((sum: number, r: any) => sum + r.rating, 0) / reviews.length;
+      await supabaseAdmin.from("users").update({ rating: Math.round(avg * 10) / 10, review_count: reviews.length }).eq("id", review.revieweeId);
+    }
+    return this.mapReview(data);
+  }
+}
+
+// ============================================================
+// IN-MEMORY STORAGE FALLBACK (dev / no Supabase config)
+// ============================================================
 export class MemStorage implements IStorage {
   private users: Map<number, User> = new Map();
   private listings: Map<number, Listing> = new Map();
@@ -47,115 +332,113 @@ export class MemStorage implements IStorage {
   }
 
   private seed() {
-    // Seed users
-    const u1 = this.createUser({ username: "throttlejockey88", displayName: "Jake Morrison", avatar: "https://i.pravatar.cc/150?img=11", bio: "Truck and Jeep enthusiast. Buy and sell clean builds only.", location: "Austin, TX", memberSince: "Jan 2022", rating: 4.9, reviewCount: 47, verified: true, responseTime: "Within an hour" });
-    const u2 = this.createUser({ username: "dirtqueen_lisa", displayName: "Lisa Tran", avatar: "https://i.pravatar.cc/150?img=47", bio: "ATV and off-road racer. Always down to trade.", location: "Phoenix, AZ", memberSince: "Mar 2021", rating: 4.7, reviewCount: 32, verified: true, responseTime: "Usually within a few hours" });
-    const u3 = this.createUser({ username: "waveripper99", displayName: "Marcus Bell", avatar: "https://i.pravatar.cc/150?img=15", bio: "Jet ski obsessed. Summer is my season.", location: "Tampa, FL", memberSince: "Jun 2023", rating: 4.8, reviewCount: 19, verified: false, responseTime: "Within a day" });
-    const u4 = this.createUser({ username: "classicironmike", displayName: "Mike Deluca", avatar: "https://i.pravatar.cc/150?img=53", bio: "Classic car restorer. Patience and detail.", location: "Nashville, TN", memberSince: "Feb 2020", rating: 5.0, reviewCount: 88, verified: true, responseTime: "Within an hour" });
-    const u5 = this.createUser({ username: "powersports_pedro", displayName: "Pedro Vasquez", avatar: "https://i.pravatar.cc/150?img=60", bio: "Everything with an engine. Let's talk.", location: "San Diego, CA", memberSince: "Aug 2022", rating: 4.6, reviewCount: 25, verified: false, responseTime: "Usually within a few hours" });
+    const u1 = this.createUserSync({ username: "mikethrottle", displayName: "Mike Throttle", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=mike", bio: "Lifelong gearhead.", location: "Phoenix, AZ", memberSince: "Jan 2023", rating: 4.9, reviewCount: 47, verified: true, responseTime: "Within hours" });
+    const u2 = this.createUserSync({ username: "sarahspeed", displayName: "Sarah Speed", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=sarah", bio: "ATV racer.", location: "Denver, CO", memberSince: "Mar 2023", rating: 4.7, reviewCount: 23, verified: true, responseTime: "Same day" });
+    const u3 = this.createUserSync({ username: "dirtbikejoe", displayName: "Joe Ramirez", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=joe", bio: "Weekend warrior.", location: "Austin, TX", memberSince: "Jun 2023", rating: 4.5, reviewCount: 12, verified: false, responseTime: "Within a day" });
 
-    // Seed listings
-    // Using specific Unsplash photo IDs by category
-    // Trucks
-    const truckImg = "https://images.unsplash.com/photo-1571112438720-4b59f1f3a9ad?w=800&q=80";
-    // ATVs / off-road
-    const atvImg = "https://images.unsplash.com/photo-1610647752706-3bb12232b3ab?w=800&q=80";
-    // Jet Ski / watercraft
-    const jetSkiImg = "https://images.unsplash.com/photo-1520962880247-cfaf541c8724?w=800&q=80";
-    // Cars / muscle
-    const carImg = "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=800&q=80";
-    const mustangImg = "https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=800&q=80";
+    this.createListingSync({ title: "2022 Yamaha YZ450F — Race Ready", description: "Well-maintained race bike. Fresh top end, new chain/sprockets.", price: 8500, category: "Dirt Bikes", condition: "Excellent", location: "Phoenix, AZ", year: 2022, make: "Yamaha", model: "YZ450F", mileage: 42, images: [], sellerId: u1.id, status: "active", featured: true, createdAt: new Date().toISOString() });
+    this.createListingSync({ title: "2021 Can-Am Maverick X3 Turbo", description: "Side-by-side in excellent condition. Full cage, light bar, winch.", price: 32000, category: "UTVs", condition: "Excellent", location: "Denver, CO", year: 2021, make: "Can-Am", model: "Maverick X3", mileage: 1200, images: [], sellerId: u2.id, status: "active", featured: true, createdAt: new Date().toISOString() });
+    this.createListingSync({ title: "2020 Sea-Doo GTX 300 Jet Ski", description: "Low hours, garage kept. Includes trailer.", price: 14500, category: "Jet Skis", condition: "Good", location: "Austin, TX", year: 2020, make: "Sea-Doo", model: "GTX 300", mileage: 45, images: [], sellerId: u3.id, status: "active", featured: false, createdAt: new Date().toISOString() });
+    this.createListingSync({ title: "2019 Ford F-150 Raptor", description: "Fox shocks, Baja mode, clean title.", price: 54000, category: "Trucks", condition: "Good", location: "Phoenix, AZ", year: 2019, make: "Ford", model: "F-150 Raptor", mileage: 38000, images: [], sellerId: u1.id, status: "active", featured: true, createdAt: new Date().toISOString() });
 
-    this.createListing({ title: "2022 Ford F-250 Super Duty — Lifted 4x4", description: "Clean title, full service history, 6-inch BDS lift, 37-inch Falken tires, Method wheels, ARB front bumper, light bar. Runs and drives perfect. No lowballers.", price: 58900, category: "Trucks", condition: "Excellent", location: "Austin, TX", year: 2022, make: "Ford", model: "F-250 Super Duty", mileage: 34000, images: [truckImg], sellerId: u1.id, status: "active", createdAt: "2 hours ago", featured: true });
-    this.createListing({ title: "2021 Yamaha YFZ450R — Race Ready", description: "Full Pro Circuit exhaust, Boyesen clutch cover, Excel rims, fresh top end. Won 3 races last season. Ready to shred.", price: 8400, category: "ATVs", condition: "Good", location: "Phoenix, AZ", year: 2021, make: "Yamaha", model: "YFZ450R", mileage: 820, images: [atvImg], sellerId: u2.id, status: "active", createdAt: "5 hours ago", featured: true });
-    this.createListing({ title: "2023 Sea-Doo RXP-X 300 — Low Hours", description: "Only 22 hours on hull. Watercraft cover, 4-point trailer hitch, RIVA catch kit. Fastest ski I've owned. Must sell, moving.", price: 16500, category: "Jet Skis", condition: "Like New", location: "Tampa, FL", year: 2023, make: "Sea-Doo", model: "RXP-X 300", mileage: 22, images: [jetSkiImg], sellerId: u3.id, status: "active", createdAt: "1 day ago", featured: true });
-    this.createListing({ title: "1969 Ford Mustang Fastback — Resto-Mod", description: "Coyote 5.0 swap, Tremec T56 6-speed, Wilwood brakes, custom wiring. Drives like a dream, looks like original. Show quality.", price: 89000, category: "Cars", condition: "Excellent", location: "Nashville, TN", year: 1969, make: "Ford", model: "Mustang Fastback", mileage: 0, images: [mustangImg], sellerId: u4.id, status: "active", createdAt: "3 days ago", featured: true });
-    this.createListing({ title: "2020 Can-Am Maverick X3 Turbo RR", description: "Stock with only 1,100 miles. Full cage, harnesses, beadlock wheels. Ready for Glamis or the trail. Priced to sell.", price: 29500, category: "ATVs", condition: "Excellent", location: "San Diego, CA", year: 2020, make: "Can-Am", model: "Maverick X3 Turbo RR", mileage: 1100, images: [atvImg], sellerId: u5.id, status: "active", createdAt: "4 days ago", featured: false });
-    this.createListing({ title: "2019 Kawasaki Ultra 310R Jet Ski", description: "Supercharged beast. 310hp, 3-seater, recent service, Riva stage 2 intake. Comes with custom trailer. Low hours.", price: 12800, category: "Jet Skis", condition: "Good", location: "Tampa, FL", year: 2019, make: "Kawasaki", model: "Ultra 310R", mileage: 88, images: [jetSkiImg], sellerId: u3.id, status: "active", createdAt: "5 days ago", featured: false });
-    this.createListing({ title: "2021 Dodge Ram TRX — Levinsohn Edition", description: "702hp supercharged from the factory. Levinsohn fox shocks upgrade, Morimoto headlights, bed liner. Mint condition.", price: 94000, category: "Trucks", condition: "Like New", location: "Austin, TX", year: 2021, make: "Dodge", model: "Ram 1500 TRX", mileage: 11200, images: [truckImg], sellerId: u1.id, status: "active", createdAt: "1 week ago", featured: false });
-    this.createListing({ title: "2018 Honda Talon 1000X-4", description: "4-seater, full cage, stereo, snorkel kit. Family fun or trail shredder. Tons of fun, reason for selling: upgrading.", price: 18500, category: "ATVs", condition: "Good", location: "Phoenix, AZ", year: 2018, make: "Honda", model: "Talon 1000X-4", mileage: 2300, images: [atvImg], sellerId: u2.id, status: "active", createdAt: "1 week ago", featured: false });
-
-    // Seed groups
-    const g1 = this.createGroup({ name: "Texas Truck Builds", description: "The largest Texas-based truck enthusiast community. Share builds, mods, meet-ups, and buy/sell parts.", category: "Trucks", coverImage: "https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=1200&q=80", memberCount: 14200, postCount: 3800, ownerId: u1.id, private: false, createdAt: "2020-01-15" });
-    const g2 = this.createGroup({ name: "ATV & SxS Nation", description: "Dedicated to all-terrain vehicles and side-by-sides. Trail reviews, race schedules, builds, and classifieds.", category: "ATVs", coverImage: "https://images.unsplash.com/photo-1558980664-769d59546b3d?w=1200&q=80", memberCount: 9800, postCount: 2200, ownerId: u2.id, private: false, createdAt: "2021-03-20" });
-    const g3 = this.createGroup({ name: "Jet Ski Junkies", description: "PWC enthusiasts unite. From Sea-Doo to Yamaha to Kawasaki — races, trips, mods, and sales.", category: "Jet Skis", coverImage: "https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=1200&q=80", memberCount: 6300, postCount: 1100, ownerId: u3.id, private: false, createdAt: "2022-06-01" });
-    const g4 = this.createGroup({ name: "Classic Iron Garage", description: "For muscle car and vintage American iron restorers. Build threads, sourcing help, and show schedules.", category: "Cars", coverImage: "https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=1200&q=80", memberCount: 22100, postCount: 8700, ownerId: u4.id, private: false, createdAt: "2019-11-10" });
-    const g5 = this.createGroup({ name: "Powersports Buy/Sell/Trade", description: "The general marketplace group. All powersports welcome — cars, trucks, ATVs, sleds, boats, jet skis.", category: "General", coverImage: "https://images.unsplash.com/photo-1609521263047-f8f205293f24?w=1200&q=80", memberCount: 31500, postCount: 12400, ownerId: u5.id, private: false, createdAt: "2019-05-01" });
-
-    // Seed posts
-    this.createPost({ groupId: g1.id, authorId: u1.id, content: "Just finished the bumper-to-bumper build on my F-250. ARB bullbar, Rigid Industries light bar, and new 37s. Hit the trails this weekend in Moab and it was flawless. Full build thread coming soon.", images: ["https://images.unsplash.com/photo-1609521263047-f8f205293f24?w=800&q=80"], likes: 214, commentCount: 38, createdAt: "3 hours ago" });
-    this.createPost({ groupId: g2.id, authorId: u2.id, content: "Race report from the Havasu ATV race: YFZ450R took 2nd in the open class. Pro Circuit exhaust made a huge difference in the midrange. Anyone else running that setup?", images: [], likes: 87, commentCount: 21, createdAt: "1 day ago" });
-    this.createPost({ groupId: g3.id, authorId: u3.id, content: "Weekend at Clearwater Beach was unreal. RXP-X 300 hits 70mph easy, no complaints. Tried the new RIVA tune and gained another 8mph top speed. 🔥", images: ["https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&q=80"], likes: 145, commentCount: 29, createdAt: "2 days ago" });
-    this.createPost({ groupId: g4.id, authorId: u4.id, content: "Finally fired up the '69 Fastback with the Coyote swap. 12 months of wrenching, and she lit right up. The sound through the Flowmaster headers is everything. Video in the comments.", images: ["https://images.unsplash.com/photo-1544636331-e26879cd4d9b?w=800&q=80"], likes: 512, commentCount: 94, createdAt: "4 days ago" });
-
-    // Seed reviews
-    this.createReview({ reviewerId: u2.id, revieweeId: u1.id, listingId: 1, rating: 5, comment: "Jake was awesome to deal with. Truck was exactly as described. Quick responses and smooth transaction. Would buy from again.", type: "seller", createdAt: "1 month ago" });
-    this.createReview({ reviewerId: u3.id, revieweeId: u4.id, listingId: 4, rating: 5, comment: "Mike is the real deal. The Mustang is a show stopper. Super patient answering all my questions. 10/10 seller.", type: "seller", createdAt: "2 months ago" });
-    this.createReview({ reviewerId: u1.id, revieweeId: u2.id, listingId: 2, rating: 4, comment: "Lisa was great. ATV was in solid shape. Took a bit longer to respond but worth the wait. Honest seller.", type: "seller", createdAt: "3 months ago" });
-    this.createReview({ reviewerId: u4.id, revieweeId: u1.id, listingId: 1, rating: 5, comment: "Drove from Nashville to Austin for this truck and it was 100% worth it. Jake had every record. Top tier.", type: "seller", createdAt: "6 months ago" });
-    this.createReview({ reviewerId: u5.id, revieweeId: u3.id, listingId: 3, rating: 5, comment: "Marcus was super responsive and the ski was exactly as described. Deal went down fast and easy.", type: "seller", createdAt: "2 months ago" });
+    this.createGroupSync({ name: "Desert Riders AZ", description: "Arizona's largest off-road community.", category: "Off-Road", memberCount: 2847, postCount: 412, ownerId: u1.id, private: false, createdAt: new Date().toISOString() });
+    this.createGroupSync({ name: "Jet Ski Nation", description: "Everything water sports — racing, recreation, and marketplace.", category: "Jet Skis", memberCount: 1203, postCount: 89, ownerId: u3.id, private: false, createdAt: new Date().toISOString() });
+    this.createGroupSync({ name: "Truck Life Collective", description: "Trucks, overlanding, towing — mods, builds, and advice.", category: "Trucks", memberCount: 5621, postCount: 1047, ownerId: u1.id, private: false, createdAt: new Date().toISOString() });
   }
 
-  getUser(id: number) { return this.users.get(id); }
-  getUserByUsername(username: string) { return Array.from(this.users.values()).find(u => u.username === username); }
-  createUser(data: InsertUser): User {
-    const user: User = { id: this.userIdCounter++, ...data } as User;
-    this.users.set(user.id, user);
-    return user;
+  private createUserSync(user: any): User {
+    const newUser = { id: this.userIdCounter++, ...user };
+    this.users.set(newUser.id, newUser);
+    return newUser;
   }
-  listUsers() { return Array.from(this.users.values()); }
+  private createListingSync(listing: any): Listing {
+    const newListing = { id: this.listingIdCounter++, views: 0, saves: 0, ...listing };
+    this.listings.set(newListing.id, newListing);
+    return newListing;
+  }
+  private createGroupSync(group: any): Group {
+    const newGroup = { id: this.groupIdCounter++, coverImage: null, ...group };
+    this.groups.set(newGroup.id, newGroup);
+    return newGroup;
+  }
 
-  getListing(id: number) { return this.listings.get(id); }
-  listListings(filters?: { category?: string; status?: string }) {
-    let items = Array.from(this.listings.values());
-    if (filters?.category && filters.category !== "All") items = items.filter(l => l.category === filters.category);
-    if (filters?.status) items = items.filter(l => l.status === filters.status);
-    return items.sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0));
+  async getUser(id: number) { return this.users.get(id); }
+  async getUserByUsername(username: string) { return Array.from(this.users.values()).find(u => u.username === username); }
+  async getUserByAuthId(authId: string) { return Array.from(this.users.values()).find(u => (u as any).authId === authId); }
+  async createUser(user: InsertUser & { authId?: string; email?: string }) {
+    const newUser: User = { id: this.userIdCounter++, rating: 0, reviewCount: 0, verified: false, responseTime: "Usually within a few hours", avatar: null, bio: null, location: null, ...user };
+    this.users.set(newUser.id, newUser);
+    return newUser;
   }
-  createListing(data: InsertListing): Listing {
-    const listing: Listing = { id: this.listingIdCounter++, views: 0, saves: 0, ...data } as Listing;
-    this.listings.set(listing.id, listing);
-    return listing;
+  async updateUser(id: number, data: Partial<User>) {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    const updated = { ...user, ...data };
+    this.users.set(id, updated);
+    return updated;
   }
-  updateListingViews(id: number) {
+  async listUsers() { return Array.from(this.users.values()); }
+
+  async getListing(id: number) { return this.listings.get(id); }
+  async listListings(filters?: { category?: string; status?: string }) {
+    let result = Array.from(this.listings.values());
+    if (filters?.category) result = result.filter(l => l.category === filters.category);
+    result = result.filter(l => l.status === (filters?.status || "active"));
+    return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+  async createListing(listing: InsertListing) {
+    const newListing: Listing = { id: this.listingIdCounter++, views: 0, saves: 0, year: null, make: null, model: null, mileage: null, images: [], status: "active", featured: false, ...listing, createdAt: new Date().toISOString() };
+    this.listings.set(newListing.id, newListing);
+    return newListing;
+  }
+  async updateListingViews(id: number) {
     const l = this.listings.get(id);
     if (l) this.listings.set(id, { ...l, views: (l.views || 0) + 1 });
   }
-  saveListing(id: number) {
+  async saveListing(id: number) {
     const l = this.listings.get(id);
     if (l) this.listings.set(id, { ...l, saves: (l.saves || 0) + 1 });
   }
+  async updateListing(id: number, data: Partial<Listing>) {
+    const l = this.listings.get(id);
+    if (!l) return undefined;
+    const updated = { ...l, ...data };
+    this.listings.set(id, updated);
+    return updated;
+  }
+  async deleteListing(id: number) { this.listings.delete(id); }
 
-  getGroup(id: number) { return this.groups.get(id); }
-  listGroups(category?: string) {
-    let items = Array.from(this.groups.values());
-    if (category && category !== "All") items = items.filter(g => g.category === category);
-    return items.sort((a, b) => (b.memberCount || 0) - (a.memberCount || 0));
+  async getGroup(id: number) { return this.groups.get(id); }
+  async listGroups(category?: string) {
+    let result = Array.from(this.groups.values());
+    if (category) result = result.filter(g => g.category === category);
+    return result.sort((a, b) => (b.memberCount || 0) - (a.memberCount || 0));
   }
-  createGroup(data: InsertGroup): Group {
-    const group: Group = { id: this.groupIdCounter++, memberCount: data.memberCount || 0, postCount: data.postCount || 0, ...data } as Group;
-    this.groups.set(group.id, group);
-    return group;
-  }
-
-  getPost(id: number) { return this.posts.get(id); }
-  listPostsByGroup(groupId: number) {
-    return Array.from(this.posts.values()).filter(p => p.groupId === groupId);
-  }
-  createPost(data: InsertPost): Post {
-    const post: Post = { id: this.postIdCounter++, likes: data.likes || 0, commentCount: data.commentCount || 0, ...data } as Post;
-    this.posts.set(post.id, post);
-    return post;
+  async createGroup(group: InsertGroup) {
+    const newGroup: Group = { id: this.groupIdCounter++, memberCount: 0, postCount: 0, coverImage: null, private: false, ...group, createdAt: new Date().toISOString() };
+    this.groups.set(newGroup.id, newGroup);
+    return newGroup;
   }
 
-  listReviewsForUser(userId: number) {
+  async getPost(id: number) { return this.posts.get(id); }
+  async listPostsByGroup(groupId: number) {
+    return Array.from(this.posts.values()).filter(p => p.groupId === groupId).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+  async createPost(post: InsertPost) {
+    const newPost: Post = { id: this.postIdCounter++, likes: 0, commentCount: 0, images: [], ...post, createdAt: new Date().toISOString() };
+    this.posts.set(newPost.id, newPost);
+    return newPost;
+  }
+
+  async listReviewsForUser(userId: number) {
     return Array.from(this.reviews.values()).filter(r => r.revieweeId === userId);
   }
-  createReview(data: InsertReview): Review {
-    const review: Review = { id: this.reviewIdCounter++, ...data } as Review;
-    this.reviews.set(review.id, review);
-    return review;
+  async createReview(review: InsertReview) {
+    const newReview: Review = { id: this.reviewIdCounter++, listingId: null, ...review, createdAt: new Date().toISOString() };
+    this.reviews.set(newReview.id, newReview);
+    return newReview;
   }
 }
 
-export const storage = new MemStorage();
+// Export the right storage based on environment
+export const storage: IStorage = isSupabaseConfigured() ? new SupabaseStorage() : new MemStorage();
