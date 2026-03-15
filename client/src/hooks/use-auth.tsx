@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, setAuthToken } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -37,24 +37,22 @@ interface AuthContextValue {
 // ─── Context ─────────────────────────────────────────────────
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const SESSION_KEY = "wg_session";
+// In-memory session store — avoids sessionStorage/localStorage
+// which are blocked in sandboxed iframes
+let _memSession: AuthSession | null = null;
 
 function getStoredSession(): AuthSession | null {
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw) as AuthSession;
-    // Check if expired (with 60s buffer)
-    if (s.expires_at && Date.now() / 1000 > s.expires_at - 60) return null;
-    return s;
-  } catch {
+  if (!_memSession) return null;
+  // Check if expired (with 60s buffer)
+  if (_memSession.expires_at && Date.now() / 1000 > _memSession.expires_at - 60) {
+    _memSession = null;
     return null;
   }
+  return _memSession;
 }
 
 function storeSession(s: AuthSession | null) {
-  if (s) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s));
-  else sessionStorage.removeItem(SESSION_KEY);
+  _memSession = s;
 }
 
 // ─── Provider ────────────────────────────────────────────────
@@ -65,12 +63,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const applySession = useCallback((newSession: AuthSession, newUser: AuthUser) => {
     storeSession(newSession);
+    setAuthToken(newSession.access_token);
     setSession(newSession);
     setUser(newUser);
   }, []);
 
   const clearSession = useCallback(() => {
     storeSession(null);
+    setAuthToken(null);
     setSession(null);
     setUser(null);
     queryClient.clear();

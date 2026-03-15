@@ -2,17 +2,12 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
-const SESSION_KEY = "wg_session";
+// Shared in-memory token — set by useAuth when session changes
+let _authToken: string | null = null;
+export function setAuthToken(token: string | null) { _authToken = token; }
 
 function getToken(): string | null {
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw);
-    return s?.access_token ?? null;
-  } catch {
-    return null;
-  }
+  return _authToken;
 }
 
 async function throwIfResNotOk(res: Response) {
