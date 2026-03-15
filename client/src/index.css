@@ -1,0 +1,178 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* WhipGuides — Dark Asphalt + Orange Fire palette */
+    --background: 220 14% 8%;
+    --foreground: 30 10% 92%;
+
+    --card: 220 13% 11%;
+    --card-foreground: 30 10% 92%;
+
+    --popover: 220 13% 11%;
+    --popover-foreground: 30 10% 92%;
+
+    /* Orange fire accent */
+    --primary: 25 95% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 11% 17%;
+    --secondary-foreground: 30 10% 85%;
+
+    --muted: 220 11% 15%;
+    --muted-foreground: 220 5% 52%;
+
+    --accent: 220 11% 17%;
+    --accent-foreground: 30 10% 92%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 9% 20%;
+    --input: 220 9% 20%;
+    --ring: 25 95% 53%;
+
+    --radius: 0.5rem;
+
+    /* Sidebar */
+    --sidebar-background: 220 14% 7%;
+    --sidebar-foreground: 30 10% 80%;
+    --sidebar-primary: 25 95% 53%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 11% 14%;
+    --sidebar-accent-foreground: 30 10% 85%;
+    --sidebar-border: 220 9% 16%;
+    --sidebar-ring: 25 95% 53%;
+  }
+
+  /* Dark is default — this is a dark-first app */
+  .light {
+    --background: 40 12% 96%;
+    --foreground: 220 14% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 14% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 14% 12%;
+    --primary: 25 95% 48%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 8% 92%;
+    --secondary-foreground: 220 14% 20%;
+    --muted: 40 8% 93%;
+    --muted-foreground: 220 6% 46%;
+    --accent: 40 8% 90%;
+    --accent-foreground: 220 14% 15%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 40 7% 84%;
+    --input: 40 7% 84%;
+    --ring: 25 95% 48%;
+    --sidebar-background: 40 10% 94%;
+    --sidebar-foreground: 220 14% 20%;
+    --sidebar-primary: 25 95% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 40 8% 89%;
+    --sidebar-accent-foreground: 220 14% 20%;
+    --sidebar-border: 40 7% 82%;
+    --sidebar-ring: 25 95% 48%;
+  }
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+    scroll-padding-top: 4rem;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Satoshi', 'Inter', system-ui, sans-serif;
+    min-height: 100dvh;
+    line-height: 1.6;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Cabinet Grotesk', 'Satoshi', system-ui, sans-serif;
+    text-wrap: balance;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+
+  img, video { display: block; max-width: 100%; height: auto; }
+  input, button, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: none; }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: hsl(25 95% 53% / 0.25);
+  }
+}
+
+/* Elevation utilities */
+@layer utilities {
+  .hover-elevate {
+    transition: transform 150ms ease, box-shadow 150ms ease;
+  }
+  .hover-elevate:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px hsl(0 0% 0% / 0.3);
+  }
+
+  .active-elevate-2:active {
+    transform: translateY(1px);
+    box-shadow: none;
+  }
+
+  .text-display {
+    font-family: 'Cabinet Grotesk', 'Satoshi', system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+
+  .category-pill {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium cursor-pointer transition-all;
+  }
+
+  .listing-card {
+    @apply bg-card rounded-xl border border-border overflow-hidden hover-elevate cursor-pointer;
+    transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+  }
+  .listing-card:hover {
+    @apply border-primary/40;
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px hsl(0 0% 0% / 0.35);
+  }
+
+  .badge-condition-likenew {
+    @apply bg-emerald-500/15 text-emerald-400 border-emerald-500/30;
+  }
+  .badge-condition-excellent {
+    @apply bg-blue-500/15 text-blue-400 border-blue-500/30;
+  }
+  .badge-condition-good {
+    @apply bg-yellow-500/15 text-yellow-400 border-yellow-500/30;
+  }
+  .badge-condition-fair {
+    @apply bg-orange-500/15 text-orange-400 border-orange-500/30;
+  }
+
+  .star-filled { color: hsl(40 90% 58%); }
+  .star-empty { @apply text-muted-foreground; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
+::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/40; }
