@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StarRating } from "@/components/StarRating";
 import { Link } from "wouter";
 import { useState } from "react";
+import { timeAgo } from "@/lib/utils";
 import {
   MapPin, Eye, Heart, Share2, Flag, ShieldCheck,
   MessageSquare, ChevronLeft, ChevronRight, Clock,
@@ -192,7 +193,7 @@ export default function ListingDetailPage({ id }: { id: number }) {
             <div className="flex items-center gap-3 text-xs text-muted-foreground mb-4">
               <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {listing.location}</span>
               <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {listing.views} views</span>
-              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {listing.createdAt}</span>
+              <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {timeAgo(listing.createdAt)}</span>
             </div>
 
             {/* CTA buttons */}

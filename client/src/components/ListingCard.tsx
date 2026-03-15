@@ -1,8 +1,9 @@
 import { Link } from "wouter";
-import { Heart, Eye, MapPin, ShieldCheck, Star } from "lucide-react";
+import { Heart, Eye, MapPin, ShieldCheck, Star, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { timeAgo } from "@/lib/utils";
 
 interface ListingCardProps {
   listing: any;

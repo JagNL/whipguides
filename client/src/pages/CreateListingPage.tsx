@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { Camera, DollarSign, MapPin, Tag, Gauge, CheckSquare } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 
 const CATEGORIES = ["Cars", "Trucks", "ATVs", "Jet Skis", "Motorcycles", "Boats", "Snowmobiles", "Parts & Accessories", "Other"];
 const CONDITIONS = ["Like New", "Excellent", "Good", "Fair"];
@@ -41,6 +42,17 @@ export default function CreateListingPage() {
   const [step, setStep] = useState(1);
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const { isAuthenticated, user } = useAuth();
+
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
+        <h2 className="text-display text-2xl font-extrabold mb-2">Sign in to list an item</h2>
+        <p className="text-muted-foreground mb-6">Create a free account to reach thousands of buyers on WhipGuides.</p>
+        <Button onClick={() => navigate("/")}>Go Home</Button>
+      </div>
+    );
+  }
 
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
@@ -62,8 +74,7 @@ export default function CreateListingPage() {
     mutationFn: (data: FormData) =>
       apiRequest("POST", "/api/listings", {
         ...data,
-        images: ["https://images.unsplash.com/photo-1552519507-da3b142c6e3d?w=800&q=80"],
-        createdAt: "Just now",
+        images: [],
       }).then(r => r.json()),
     onSuccess: (listing) => {
       queryClient.invalidateQueries({ queryKey: ["/api/listings"] });

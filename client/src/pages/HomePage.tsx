@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { timeAgo } from "@/lib/utils";
 import ListingCard from "@/components/ListingCard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +31,7 @@ export default function HomePage() {
 
   const { data: listings = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/listings", activeCategory],
-    queryFn: () => apiRequest("GET", `/api/listings?category=${activeCategory}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/listings${activeCategory !== "All" ? `?category=${encodeURIComponent(activeCategory)}` : ""}`).then(r => r.json()),
   });
 
   const sorted = [...listings].sort((a, b) => {
