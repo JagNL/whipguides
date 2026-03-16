@@ -14,6 +14,7 @@ import { ShieldCheck, MapPin, Calendar, MessageSquare, Star, Clock, Pencil, Load
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 type Tab = "listings" | "reviews";
 
@@ -23,6 +24,19 @@ export default function ProfilePage({ id }: { id: number }) {
   const { user: currentUser, refreshUser } = useAuth();
   const { toast } = useToast();
   const isOwnProfile = currentUser?.id === id;
+  const [, navigate] = useLocation();
+
+  const { mutate: messageUser, isPending: messagingUser } = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/conversations", { otherUserId: id }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      navigate("/messages");
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Could not start conversation.", variant: "destructive" });
+    },
+  });
 
   const { data: user, isLoading: userLoading } = useQuery<any>({
     queryKey: ["/api/users", id],
@@ -143,8 +157,16 @@ export default function ProfilePage({ id }: { id: number }) {
                     <Pencil className="w-4 h-4" /> Edit Profile
                   </Button>
                 ) : (
-                  <Button className="gap-2 shrink-0" data-testid="button-message-user">
-                    <MessageSquare className="w-4 h-4" /> Message
+                  <Button
+                    className="gap-2 shrink-0"
+                    data-testid="button-message-user"
+                    onClick={() => {
+                      if (!currentUser) { toast({ title: "Sign in required", description: "Please sign in to send messages." }); return; }
+                      messageUser();
+                    }}
+                    disabled={messagingUser}
+                  >
+                    <MessageSquare className="w-4 h-4" /> {messagingUser ? "Opening..." : "Message"}
                   </Button>
                 )}
               </div>

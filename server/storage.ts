@@ -1,3 +1,4 @@
+import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
 import type {
   User, InsertUser,
   Listing, InsertListing,
@@ -5,7 +6,32 @@ import type {
   Post, InsertPost,
   Review, InsertReview,
 } from "@shared/schema";
-import { supabaseAdmin, isSupabaseConfigured } from "./supabase";
+
+// ── Messaging types (not in Drizzle schema — raw Supabase) ──
+export interface Conversation {
+  id: number;
+  participant1Id: number;
+  participant2Id: number;
+  listingId: number | null;
+  lastMessage: string | null;
+  lastMessageAt: string;
+  unreadCount1: number;
+  unreadCount2: number;
+  createdAt: string;
+  // enriched
+  otherUser?: User;
+  listing?: Partial<Listing>;
+}
+
+export interface Message {
+  id: number;
+  conversationId: number;
+  senderId: number;
+  content: string;
+  readAt: string | null;
+  createdAt: string;
+  sender?: User;
+}
 
 // ============================================================
 // STORAGE INTERFACE
@@ -41,6 +67,14 @@ export interface IStorage {
   // Reviews
   listReviewsForUser(userId: number): Promise<Review[]>;
   createReview(review: InsertReview): Promise<Review>;
+
+  // Messaging
+  getOrCreateConversation(userA: number, userB: number, listingId?: number | null): Promise<Conversation>;
+  listConversations(userId: number): Promise<Conversation[]>;
+  listMessages(conversationId: number, limit?: number): Promise<Message[]>;
+  sendMessage(conversationId: number, senderId: number, content: string): Promise<Message>;
+  markMessagesRead(conversationId: number, userId: number): Promise<void>;
+  getConversation(id: number): Promise<Conversation | undefined>;
 }
 
 // ============================================================
@@ -312,6 +346,142 @@ export class SupabaseStorage implements IStorage {
     }
     return this.mapReview(data);
   }
+
+  // ──────────────────────────────────────────────────────────
+  // MESSAGING
+  // ──────────────────────────────────────────────────────────
+
+  private mapConversation(row: any): Conversation {
+    return {
+      id: row.id,
+      participant1Id: row.participant1_id,
+      participant2Id: row.participant2_id,
+      listingId: row.listing_id,
+      lastMessage: row.last_message,
+      lastMessageAt: row.last_message_at,
+      unreadCount1: row.unread_count_1 || 0,
+      unreadCount2: row.unread_count_2 || 0,
+      createdAt: row.created_at,
+    };
+  }
+
+  private mapMessage(row: any): Message {
+    return {
+      id: row.id,
+      conversationId: row.conversation_id,
+      senderId: row.sender_id,
+      content: row.content,
+      readAt: row.read_at,
+      createdAt: row.created_at,
+    };
+  }
+
+  async getOrCreateConversation(userA: number, userB: number, listingId?: number | null): Promise<Conversation> {
+    const p1 = Math.min(userA, userB);
+    const p2 = Math.max(userA, userB);
+    // Try to find existing
+    const { data: existing } = await supabaseAdmin
+      .from("conversations")
+      .select("*")
+      .eq("participant1_id", p1)
+      .eq("participant2_id", p2)
+      .single();
+    if (existing) return this.mapConversation(existing);
+    // Create new
+    const { data, error } = await supabaseAdmin.from("conversations").insert({
+      participant1_id: p1,
+      participant2_id: p2,
+      listing_id: listingId || null,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    return this.mapConversation(data);
+  }
+
+  async getConversation(id: number): Promise<Conversation | undefined> {
+    const { data } = await supabaseAdmin.from("conversations").select("*").eq("id", id).single();
+    return data ? this.mapConversation(data) : undefined;
+  }
+
+  async listConversations(userId: number): Promise<Conversation[]> {
+    const { data } = await supabaseAdmin
+      .from("conversations")
+      .select("*")
+      .or(`participant1_id.eq.${userId},participant2_id.eq.${userId}`)
+      .order("last_message_at", { ascending: false })
+      .limit(50);
+    if (!data) return [];
+    // Enrich with other user
+    const convs = data.map(this.mapConversation.bind(this));
+    const enriched = await Promise.all(convs.map(async (c) => {
+      const otherId = c.participant1Id === userId ? c.participant2Id : c.participant1Id;
+      const otherUser = await this.getUser(otherId);
+      let listing: Partial<Listing> | undefined;
+      if (c.listingId) {
+        const l = await this.getListing(c.listingId);
+        if (l) listing = { id: l.id, title: l.title, images: l.images, price: l.price };
+      }
+      return { ...c, otherUser, listing };
+    }));
+    return enriched;
+  }
+
+  async listMessages(conversationId: number, limit = 100): Promise<Message[]> {
+    const { data } = await supabaseAdmin
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(limit);
+    if (!data) return [];
+    const msgs = data.map(this.mapMessage.bind(this));
+    // Enrich with sender
+    return Promise.all(msgs.map(async (m) => ({
+      ...m,
+      sender: await this.getUser(m.senderId),
+    })));
+  }
+
+  async sendMessage(conversationId: number, senderId: number, content: string): Promise<Message> {
+    const { data, error } = await supabaseAdmin.from("messages").insert({
+      conversation_id: conversationId,
+      sender_id: senderId,
+      content,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    // Update conversation last_message + bump unread for the other participant
+    const conv = await this.getConversation(conversationId);
+    if (conv) {
+      const isP1 = conv.participant1Id === senderId;
+      await supabaseAdmin.from("conversations").update({
+        last_message: content.length > 80 ? content.slice(0, 80) + "..." : content,
+        last_message_at: new Date().toISOString(),
+        unread_count_1: isP1 ? conv.unreadCount1 : conv.unreadCount1 + 1,
+        unread_count_2: isP1 ? conv.unreadCount2 + 1 : conv.unreadCount2,
+      }).eq("id", conversationId);
+    }
+    const msg = this.mapMessage(data);
+    const sender = await this.getUser(senderId);
+    return { ...msg, sender };
+  }
+
+  async markMessagesRead(conversationId: number, userId: number): Promise<void> {
+    // Mark individual messages read
+    await supabaseAdmin
+      .from("messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("conversation_id", conversationId)
+      .neq("sender_id", userId)
+      .is("read_at", null);
+    // Reset unread count for this user
+    const conv = await this.getConversation(conversationId);
+    if (conv) {
+      const isP1 = conv.participant1Id === userId;
+      await supabaseAdmin.from("conversations").update({
+        unread_count_1: isP1 ? 0 : conv.unreadCount1,
+        unread_count_2: isP1 ? conv.unreadCount2 : 0,
+      }).eq("id", conversationId);
+    }
+  }
 }
 
 // ============================================================
@@ -440,6 +610,61 @@ export class MemStorage implements IStorage {
     const newReview: Review = { id: this.reviewIdCounter++, listingId: null, ...review, createdAt: new Date().toISOString() };
     this.reviews.set(newReview.id, newReview);
     return newReview;
+  }
+
+  // ── Messaging stubs for MemStorage ──
+  private conversations: Map<number, Conversation> = new Map();
+  private messages: Map<number, Message> = new Map();
+  private convIdCounter = 1;
+  private msgIdCounter = 1;
+
+  async getOrCreateConversation(userA: number, userB: number, listingId?: number | null): Promise<Conversation> {
+    const p1 = Math.min(userA, userB);
+    const p2 = Math.max(userA, userB);
+    const existing = Array.from(this.conversations.values()).find(
+      c => c.participant1Id === p1 && c.participant2Id === p2
+    );
+    if (existing) return existing;
+    const conv: Conversation = {
+      id: this.convIdCounter++, participant1Id: p1, participant2Id: p2,
+      listingId: listingId || null, lastMessage: null,
+      lastMessageAt: new Date().toISOString(), unreadCount1: 0, unreadCount2: 0,
+      createdAt: new Date().toISOString(),
+    };
+    this.conversations.set(conv.id, conv);
+    return conv;
+  }
+  async getConversation(id: number): Promise<Conversation | undefined> {
+    return this.conversations.get(id);
+  }
+  async listConversations(userId: number): Promise<Conversation[]> {
+    return Array.from(this.conversations.values())
+      .filter(c => c.participant1Id === userId || c.participant2Id === userId)
+      .sort((a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime());
+  }
+  async listMessages(conversationId: number, _limit = 100): Promise<Message[]> {
+    return Array.from(this.messages.values())
+      .filter(m => m.conversationId === conversationId)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+  async sendMessage(conversationId: number, senderId: number, content: string): Promise<Message> {
+    const msg: Message = {
+      id: this.msgIdCounter++, conversationId, senderId, content,
+      readAt: null, createdAt: new Date().toISOString(),
+      sender: await this.getUser(senderId),
+    };
+    this.messages.set(msg.id, msg);
+    const conv = this.conversations.get(conversationId);
+    if (conv) this.conversations.set(conversationId, { ...conv, lastMessage: content, lastMessageAt: msg.createdAt });
+    return msg;
+  }
+  async markMessagesRead(conversationId: number, userId: number): Promise<void> {
+    const now = new Date().toISOString();
+    for (const [id, msg] of this.messages) {
+      if (msg.conversationId === conversationId && msg.senderId !== userId && !msg.readAt) {
+        this.messages.set(id, { ...msg, readAt: now });
+      }
+    }
   }
 }
 

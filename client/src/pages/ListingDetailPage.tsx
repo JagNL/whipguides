@@ -1,13 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StarRating } from "@/components/StarRating";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useState } from "react";
 import { timeAgo } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 import {
   MapPin, Eye, Heart, Share2, Flag, ShieldCheck,
   MessageSquare, ChevronLeft, ChevronRight, Clock,
@@ -24,7 +26,31 @@ const CONDITION_STYLES: Record<string, string> = {
 export default function ListingDetailPage({ id }: { id: number }) {
   const [imgIdx, setImgIdx] = useState(0);
   const [saved, setSaved] = useState(false);
-  const [contacted, setContacted] = useState(false);
+  const [, navigate] = useLocation();
+  const { user, isAuthenticated } = useAuth();
+  const { toast } = useToast();
+
+  const { mutate: startConversation, isPending: startingConv } = useMutation({
+    mutationFn: (sellerId: number) =>
+      apiRequest("POST", "/api/conversations", { otherUserId: sellerId, listingId: id }).then(r => r.json()),
+    onSuccess: (conv) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
+      navigate(`/messages`);
+      // Give the messages page a moment then set active conv via URL state isn't available,
+      // so we navigate to /messages with the conversation already created — it will appear in inbox
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Could not start conversation. Try again.", variant: "destructive" });
+    },
+  });
+
+  const handleContactSeller = () => {
+    if (!isAuthenticated) {
+      toast({ title: "Sign in required", description: "Please sign in to contact sellers." });
+      return;
+    }
+    if (listing?.seller) startConversation(listing.seller.id);
+  };
 
   const { data: listing, isLoading } = useQuery<any>({
     queryKey: ["/api/listings", id],
@@ -201,10 +227,11 @@ export default function ListingDetailPage({ id }: { id: number }) {
               <Button
                 className="w-full font-bold gap-2"
                 data-testid="button-contact-seller"
-                onClick={() => setContacted(true)}
+                onClick={handleContactSeller}
+                disabled={startingConv || (!!user && listing?.seller?.id === user.id)}
               >
                 <MessageSquare className="w-4 h-4" />
-                {contacted ? "Message Sent!" : "Contact Seller"}
+                {startingConv ? "Opening..." : user && listing?.seller?.id === user.id ? "Your Listing" : "Contact Seller"}
               </Button>
               <div className="flex gap-2">
                 <Button

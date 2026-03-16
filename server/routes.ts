@@ -203,6 +203,73 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============================================================
+  // MESSAGING
+  // ============================================================
+
+  // GET /api/conversations — my inbox
+  app.get("/api/conversations", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
+    const convs = await storage.listConversations(currentUser.id);
+    return res.json(convs);
+  });
+
+  // POST /api/conversations — start or open a conversation with a user
+  app.post("/api/conversations", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
+    const { otherUserId, listingId } = req.body;
+    if (!otherUserId || currentUser.id === Number(otherUserId)) {
+      return res.status(400).json({ error: "Invalid participant" });
+    }
+    try {
+      const conv = await storage.getOrCreateConversation(
+        currentUser.id,
+        Number(otherUserId),
+        listingId ? Number(listingId) : null
+      );
+      return res.json(conv);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/conversations/:id/messages — load thread
+  app.get("/api/conversations/:id/messages", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const convId = Number(req.params.id);
+    const conv = await storage.getConversation(convId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found" });
+    // Auth: only participants
+    if (conv.participant1Id !== currentUser.id && conv.participant2Id !== currentUser.id) {
+      return res.status(403).json({ error: "Not a participant" });
+    }
+    // Mark as read
+    await storage.markMessagesRead(convId, currentUser.id);
+    const messages = await storage.listMessages(convId);
+    return res.json(messages);
+  });
+
+  // POST /api/conversations/:id/messages — send a message
+  app.post("/api/conversations/:id/messages", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const convId = Number(req.params.id);
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: "Message cannot be empty" });
+    const conv = await storage.getConversation(convId);
+    if (!conv) return res.status(404).json({ error: "Conversation not found" });
+    if (conv.participant1Id !== currentUser.id && conv.participant2Id !== currentUser.id) {
+      return res.status(403).json({ error: "Not a participant" });
+    }
+    try {
+      const message = await storage.sendMessage(convId, currentUser.id, content.trim());
+      return res.status(201).json(message);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
   // HEALTH CHECK
   // ============================================================
   app.get("/api/health", (_req, res) => {
