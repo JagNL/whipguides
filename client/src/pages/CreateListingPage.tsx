@@ -10,9 +10,10 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { Camera, DollarSign, MapPin, Tag, Gauge, CheckSquare } from "lucide-react";
+import { DollarSign, MapPin, Tag, Gauge, CheckSquare } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import ImageUploader from "@/components/ImageUploader";
 
 const CATEGORIES = ["Cars", "Trucks", "ATVs", "Jet Skis", "Motorcycles", "Boats", "Snowmobiles", "Parts & Accessories", "Other"];
 const CONDITIONS = ["Like New", "Excellent", "Good", "Fair"];
@@ -40,6 +41,7 @@ const STEPS = [
 
 export default function CreateListingPage() {
   const [step, setStep] = useState(1);
+  const [uploadedImageIds, setUploadedImageIds] = useState<string[]>([]);
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const { isAuthenticated, user } = useAuth();
@@ -74,7 +76,7 @@ export default function CreateListingPage() {
     mutationFn: (data: FormData) =>
       apiRequest("POST", "/api/listings", {
         ...data,
-        images: [],
+        images: uploadedImageIds,
       }).then(r => r.json()),
     onSuccess: (listing) => {
       queryClient.invalidateQueries({ queryKey: ["/api/listings"] });
@@ -273,17 +275,14 @@ export default function CreateListingPage() {
                   <h2 className="font-bold text-lg">Photos & Price</h2>
                 </div>
 
-                {/* Photo upload stub */}
-                <div>
-                  <FormLabel>Photos</FormLabel>
-                  <div className="mt-2 border-2 border-dashed border-border rounded-xl p-8 text-center hover:border-primary/40 transition-colors cursor-pointer bg-secondary/30"
-                    data-testid="input-photo-upload">
-                    <Camera className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm font-medium mb-1">Drop photos here or click to upload</p>
-                    <p className="text-xs text-muted-foreground">Up to 20 photos · JPG, PNG, HEIC</p>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-2">Listings with photos get 4× more views.</p>
-                </div>
+                {/* Real photo uploader */}
+                <ImageUploader
+                  value={uploadedImageIds}
+                  onChange={setUploadedImageIds}
+                  maxImages={20}
+                  label="Photos"
+                  hint="Listings with photos get 4× more views."
+                />
 
                 <FormField control={form.control} name="price" render={({ field }) => (
                   <FormItem>

@@ -3,12 +3,18 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { authRouter, requireAuth } from "./auth";
 import { adminRouter, reportRouter } from "./admin";
+import { uploadRouter } from "./upload";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   // ============================================================
   // AUTH ROUTES
   // ============================================================
   app.use("/api/auth", authRouter);
+
+  // ============================================================
+  // UPLOAD ROUTES (Cloudflare Images)
+  // ============================================================
+  app.use("/api/upload", uploadRouter);
 
   // ============================================================
   // ADMIN ROUTES

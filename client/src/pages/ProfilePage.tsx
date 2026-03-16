@@ -1,18 +1,28 @@
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { StarRating } from "@/components/StarRating";
 import ListingCard from "@/components/ListingCard";
-import { ShieldCheck, MapPin, Calendar, MessageSquare, Star, Clock, ThumbsUp } from "lucide-react";
+import { AvatarUploader } from "@/components/ImageUploader";
+import { ShieldCheck, MapPin, Calendar, MessageSquare, Star, Clock, Pencil, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 
 type Tab = "listings" | "reviews";
 
 export default function ProfilePage({ id }: { id: number }) {
   const [activeTab, setActiveTab] = useState<Tab>("listings");
+  const [editOpen, setEditOpen] = useState(false);
+  const { user: currentUser, refreshUser } = useAuth();
+  const { toast } = useToast();
+  const isOwnProfile = currentUser?.id === id;
 
   const { data: user, isLoading: userLoading } = useQuery<any>({
     queryKey: ["/api/users", id],
@@ -30,6 +40,41 @@ export default function ProfilePage({ id }: { id: number }) {
   });
 
   const userListings = allListings.filter(l => l.sellerId === id);
+
+  // ─── Edit profile state ───────────────────────────────────
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editBio, setEditBio] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editAvatarId, setEditAvatarId] = useState<string | null>(null);
+  const [editAvatarPreview, setEditAvatarPreview] = useState<string | null>(null);
+
+  const openEdit = () => {
+    setEditDisplayName(user?.displayName || "");
+    setEditBio(user?.bio || "");
+    setEditLocation(user?.location || "");
+    setEditAvatarId(null);
+    setEditAvatarPreview(null);
+    setEditOpen(true);
+  };
+
+  const { mutate: saveProfile, isPending: isSaving } = useMutation({
+    mutationFn: () =>
+      apiRequest("PATCH", `/api/users/${id}`, {
+        displayName: editDisplayName,
+        bio: editBio,
+        location: editLocation,
+        ...(editAvatarId ? { avatar: editAvatarPreview || editAvatarId } : {}),
+      }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users", id] });
+      refreshUser();
+      setEditOpen(false);
+      toast({ title: "Profile updated", description: "Your changes have been saved." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Could not save profile. Try again.", variant: "destructive" });
+    },
+  });
 
   if (userLoading) {
     return (
@@ -91,9 +136,18 @@ export default function ProfilePage({ id }: { id: number }) {
                   <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{user.responseTime}</span>
                 </div>
               </div>
-              <Button className="gap-2 shrink-0" data-testid="button-message-user">
-                <MessageSquare className="w-4 h-4" /> Message
-              </Button>
+
+              <div className="flex gap-2">
+                {isOwnProfile ? (
+                  <Button variant="outline" className="gap-2 shrink-0" onClick={openEdit} data-testid="button-edit-profile">
+                    <Pencil className="w-4 h-4" /> Edit Profile
+                  </Button>
+                ) : (
+                  <Button className="gap-2 shrink-0" data-testid="button-message-user">
+                    <MessageSquare className="w-4 h-4" /> Message
+                  </Button>
+                )}
+              </div>
             </div>
 
             {user.bio && (
@@ -214,6 +268,75 @@ export default function ProfilePage({ id }: { id: number }) {
           )}
         </div>
       )}
+
+      {/* ── Edit Profile Dialog ───────────────────────────── */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Profile</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            {/* Avatar upload */}
+            <div className="flex flex-col items-center gap-2">
+              <AvatarUploader
+                currentUrl={user.avatar}
+                size={88}
+                onUpload={(imageId, previewUrl) => {
+                  setEditAvatarId(imageId);
+                  setEditAvatarPreview(previewUrl);
+                }}
+              />
+              <p className="text-xs text-muted-foreground">Click to change photo</p>
+            </div>
+
+            {/* Display name */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Display Name</label>
+              <Input
+                data-testid="input-edit-displayname"
+                value={editDisplayName}
+                onChange={e => setEditDisplayName(e.target.value)}
+                placeholder="Your name"
+              />
+            </div>
+
+            {/* Location */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-primary" /> Location
+              </label>
+              <Input
+                data-testid="input-edit-location"
+                value={editLocation}
+                onChange={e => setEditLocation(e.target.value)}
+                placeholder="City, State"
+              />
+            </div>
+
+            {/* Bio */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Bio</label>
+              <Textarea
+                data-testid="input-edit-bio"
+                value={editBio}
+                onChange={e => setEditBio(e.target.value)}
+                placeholder="Tell buyers about yourself..."
+                rows={3}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => saveProfile()} disabled={isSaving} data-testid="button-save-profile">
+              {isSaving ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Saving...</> : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
