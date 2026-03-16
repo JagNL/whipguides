@@ -12,6 +12,7 @@ import GroupDetailPage from "@/pages/GroupDetailPage";
 import ProfilePage from "@/pages/ProfilePage";
 import CreateListingPage from "@/pages/CreateListingPage";
 import MessagesPage from "@/pages/MessagesPage";
+import AdminPage from "@/pages/AdminPage";
 import NotFound from "@/pages/not-found";
 
 export default function App() {
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="/sell" component={() => <Layout><CreateListingPage /></Layout>} />
             <Route path="/messages" component={() => <Layout><MessagesPage /></Layout>} />
             <Route path="/messages/:userId" component={({ params }) => <Layout><MessagesPage threadUserId={Number(params.userId)} /></Layout>} />
+            <Route path="/admin" component={() => <Layout><AdminPage /></Layout>} />
             <Route component={NotFound} />
           </Switch>
         </Router>

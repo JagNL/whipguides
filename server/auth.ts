@@ -121,6 +121,12 @@ authRouter.post("/login", async (req, res) => {
   }
 
   const profile = await storage.getUserByAuthId(data.user.id);
+
+  // Block banned users
+  if ((profile as any)?.banned) {
+    return res.status(403).json({ error: "Your account has been suspended. Contact support@whipguides.com" });
+  }
+
   res.json({
     user: profile,
     session: {

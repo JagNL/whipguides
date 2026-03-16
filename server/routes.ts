@@ -2,12 +2,19 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { authRouter, requireAuth } from "./auth";
+import { adminRouter, reportRouter } from "./admin";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   // ============================================================
   // AUTH ROUTES
   // ============================================================
   app.use("/api/auth", authRouter);
+
+  // ============================================================
+  // ADMIN ROUTES
+  // ============================================================
+  app.use("/api/admin", adminRouter);
+  app.use("/api/reports", reportRouter);
 
   // ============================================================
   // USERS

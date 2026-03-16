@@ -9,8 +9,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Search, Plus, Bell, Sun, Moon, Menu, X,
-  Gauge, Users, LogOut, User, Settings, MessageSquare,
-  ShieldCheck, ChevronDown,
+  Gauge, Users, LogOut, User, MessageSquare,
+  ShieldCheck, ChevronDown, Shield,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthModal } from "@/components/AuthModal";
@@ -223,6 +223,17 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       <Plus className="w-4 h-4" /> List an Item
                     </Link>
                   </DropdownMenuItem>
+                  {/* Admin link — shown if user has admin role */}
+                  {((user as any)?.siteRole === 'site_admin' || (user as any)?.siteRole === 'super_admin') && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem asChild>
+                        <Link href="/admin" className="flex items-center gap-2 cursor-pointer text-primary">
+                          <Shield className="w-4 h-4" /> Admin Dashboard
+                        </Link>
+                      </DropdownMenuItem>
+                    </>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={handleLogout}

@@ -61,7 +61,10 @@ export class SupabaseStorage implements IStorage {
       reviewCount: row.review_count,
       verified: row.verified,
       responseTime: row.response_time,
-    };
+      // Admin fields
+      siteRole: row.site_role || 'user',
+      banned: row.banned || false,
+    } as any;
   }
 
   private mapListing(row: any): Listing {
