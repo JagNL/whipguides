@@ -75,6 +75,13 @@ export interface IStorage {
   sendMessage(conversationId: number, senderId: number, content: string): Promise<Message>;
   markMessagesRead(conversationId: number, userId: number): Promise<void>;
   getConversation(id: number): Promise<Conversation | undefined>;
+
+  // Groups social
+  joinGroup(groupId: number, userId: number): Promise<void>;
+  leaveGroup(groupId: number, userId: number): Promise<void>;
+  isMember(groupId: number, userId: number): Promise<boolean>;
+  likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }>;
+  updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined>;
 }
 
 // ============================================================
@@ -299,7 +306,64 @@ export class SupabaseStorage implements IStorage {
       private: group.private || false,
     }).select().single();
     if (error) throw new Error(error.message);
+    // Auto-add owner as a member
+    await supabaseAdmin.from("group_members").insert({
+      user_id: group.ownerId,
+      group_id: data.id,
+      role: 'owner',
+    }).select().single().catch(() => null);
     return this.mapGroup(data);
+  }
+
+  async updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined> {
+    const updates: any = {};
+    if (data.name)        updates.name = data.name;
+    if (data.description) updates.description = data.description;
+    if (data.coverImage)  updates.cover_image = data.coverImage;
+    const { data: row } = await supabaseAdmin.from("groups").update(updates).eq("id", id).select().single();
+    return row ? this.mapGroup(row) : undefined;
+  }
+
+  async joinGroup(groupId: number, userId: number): Promise<void> {
+    await supabaseAdmin.from("group_members").insert({
+      user_id: userId,
+      group_id: groupId,
+      role: 'member',
+    }).select().single().catch(() => null); // ignore duplicate
+    // Increment member_count
+    const { data } = await supabaseAdmin.from("groups").select("member_count").eq("id", groupId).single();
+    if (data) await supabaseAdmin.from("groups").update({ member_count: (data.member_count || 0) + 1 }).eq("id", groupId);
+  }
+
+  async leaveGroup(groupId: number, userId: number): Promise<void> {
+    await supabaseAdmin.from("group_members").delete().eq("user_id", userId).eq("group_id", groupId);
+    const { data } = await supabaseAdmin.from("groups").select("member_count").eq("id", groupId).single();
+    if (data) await supabaseAdmin.from("groups").update({ member_count: Math.max(0, (data.member_count || 1) - 1) }).eq("id", groupId);
+  }
+
+  async isMember(groupId: number, userId: number): Promise<boolean> {
+    const { data } = await supabaseAdmin.from("group_members").select("user_id").eq("user_id", userId).eq("group_id", groupId).single();
+    return !!data;
+  }
+
+  async likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }> {
+    // Check if already liked
+    const { data: existing } = await supabaseAdmin.from("post_likes").select("user_id").eq("user_id", userId).eq("post_id", postId).single();
+    const { data: post } = await supabaseAdmin.from("posts").select("likes").eq("id", postId).single();
+    const currentLikes = post?.likes || 0;
+    if (existing) {
+      // Unlike
+      await supabaseAdmin.from("post_likes").delete().eq("user_id", userId).eq("post_id", postId);
+      const newLikes = Math.max(0, currentLikes - 1);
+      await supabaseAdmin.from("posts").update({ likes: newLikes }).eq("id", postId);
+      return { liked: false, likes: newLikes };
+    } else {
+      // Like
+      await supabaseAdmin.from("post_likes").insert({ user_id: userId, post_id: postId }).select().single().catch(() => null);
+      const newLikes = currentLikes + 1;
+      await supabaseAdmin.from("posts").update({ likes: newLikes }).eq("id", postId);
+      return { liked: true, likes: newLikes };
+    }
   }
 
   async getPost(id: number): Promise<Post | undefined> {
@@ -610,6 +674,53 @@ export class MemStorage implements IStorage {
     const newReview: Review = { id: this.reviewIdCounter++, listingId: null, ...review, createdAt: new Date().toISOString() };
     this.reviews.set(newReview.id, newReview);
     return newReview;
+  }
+
+  // ── Groups social stubs for MemStorage ──
+  private groupMembers: Map<string, { userId: number; groupId: number; role: string }> = new Map();
+  private postLikes: Set<string> = new Set();
+
+  async joinGroup(groupId: number, userId: number): Promise<void> {
+    const key = `${groupId}-${userId}`;
+    if (!this.groupMembers.has(key)) {
+      this.groupMembers.set(key, { userId, groupId, role: 'member' });
+      const g = this.groups.get(groupId);
+      if (g) this.groups.set(groupId, { ...g, memberCount: (g.memberCount || 0) + 1 });
+    }
+  }
+  async leaveGroup(groupId: number, userId: number): Promise<void> {
+    const key = `${groupId}-${userId}`;
+    if (this.groupMembers.has(key)) {
+      this.groupMembers.delete(key);
+      const g = this.groups.get(groupId);
+      if (g) this.groups.set(groupId, { ...g, memberCount: Math.max(0, (g.memberCount || 1) - 1) });
+    }
+  }
+  async isMember(groupId: number, userId: number): Promise<boolean> {
+    return this.groupMembers.has(`${groupId}-${userId}`);
+  }
+  async likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }> {
+    const key = `${postId}-${userId}`;
+    const post = this.posts.get(postId);
+    const currentLikes = post?.likes || 0;
+    if (this.postLikes.has(key)) {
+      this.postLikes.delete(key);
+      const newLikes = Math.max(0, currentLikes - 1);
+      if (post) this.posts.set(postId, { ...post, likes: newLikes });
+      return { liked: false, likes: newLikes };
+    } else {
+      this.postLikes.add(key);
+      const newLikes = currentLikes + 1;
+      if (post) this.posts.set(postId, { ...post, likes: newLikes });
+      return { liked: true, likes: newLikes };
+    }
+  }
+  async updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined> {
+    const g = this.groups.get(id);
+    if (!g) return undefined;
+    const updated = { ...g, ...data };
+    this.groups.set(id, updated);
+    return updated;
   }
 
   // ── Messaging stubs for MemStorage ──

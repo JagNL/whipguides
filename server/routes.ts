@@ -153,6 +153,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Join / leave group
+  app.post("/api/groups/:id/join", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await storage.joinGroup(Number(req.params.id), currentUser.id);
+    return res.json({ success: true });
+  });
+
+  app.post("/api/groups/:id/leave", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await storage.leaveGroup(Number(req.params.id), currentUser.id);
+    return res.json({ success: true });
+  });
+
+  // Check membership
+  app.get("/api/groups/:id/membership", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const isMember = await storage.isMember(Number(req.params.id), currentUser.id);
+    return res.json({ isMember });
+  });
+
   // ============================================================
   // POSTS (group posts)
   // ============================================================
@@ -175,10 +195,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         content: req.body.content,
         images: req.body.images || [],
       });
+      // Increment group post_count
+      const group = await storage.getGroup(Number(req.params.id));
+      if (group) await storage.updateGroup(group.id, { postCount: (group.postCount || 0) + 1 } as any);
       return res.status(201).json({ ...post, author: currentUser });
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
     }
+  });
+
+  // Like / unlike a post
+  app.post("/api/posts/:id/like", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const result = await storage.likePost(Number(req.params.id), currentUser.id);
+    return res.json(result);
   });
 
   // ============================================================
