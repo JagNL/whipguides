@@ -39,22 +39,59 @@ interface AuthContextValue {
 // ─── Context ─────────────────────────────────────────────────
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-// In-memory session store — avoids sessionStorage/localStorage
-// which are blocked in sandboxed iframes
+// Session persistence — tries localStorage first (works on Railway/real browsers),
+// falls back to in-memory (needed for Perplexity preview iframe where storage is blocked)
+const SESSION_KEY = "wg_session";
 let _memSession: AuthSession | null = null;
 
+function isStorageAvailable(): boolean {
+  try {
+    const t = "__wg_test__";
+    localStorage.setItem(t, t);
+    localStorage.removeItem(t);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function getStoredSession(): AuthSession | null {
-  if (!_memSession) return null;
-  // Check if expired (with 60s buffer)
-  if (_memSession.expires_at && Date.now() / 1000 > _memSession.expires_at - 60) {
-    _memSession = null;
+  let s: AuthSession | null = null;
+
+  // Try localStorage first
+  if (isStorageAvailable()) {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (raw) s = JSON.parse(raw) as AuthSession;
+    } catch {
+      s = null;
+    }
+  } else {
+    s = _memSession;
+  }
+
+  if (!s) return null;
+  // Expired? Clear and return null
+  if (s.expires_at && Date.now() / 1000 > s.expires_at - 60) {
+    storeSession(null);
     return null;
   }
-  return _memSession;
+  return s;
 }
 
 function storeSession(s: AuthSession | null) {
   _memSession = s;
+  if (isStorageAvailable()) {
+    try {
+      if (s) {
+        localStorage.setItem(SESSION_KEY, JSON.stringify(s));
+      } else {
+        localStorage.removeItem(SESSION_KEY);
+      }
+    } catch {
+      // Storage full or blocked — silently fall back to memory-only
+    }
+  }
 }
 
 // ─── Provider ────────────────────────────────────────────────
@@ -78,13 +115,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryClient.clear();
   }, []);
 
-  // Restore session on mount
+  // Restore session on mount (including after page refresh)
   useEffect(() => {
     const stored = getStoredSession();
     if (!stored) {
       setIsLoading(false);
       return;
     }
+    // Re-arm the auth token immediately so API calls work during hydration
+    setAuthToken(stored.access_token);
     // Verify token is still valid by fetching /me
     apiRequest("GET", "/api/auth/me", undefined)
       .then(r => r.json())
@@ -93,10 +132,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(stored);
           setUser(data.user);
         } else {
+          // Token invalid/expired — clear everything
           storeSession(null);
+          setAuthToken(null);
         }
       })
-      .catch(() => storeSession(null))
+      .catch(() => {
+        storeSession(null);
+        setAuthToken(null);
+      })
       .finally(() => setIsLoading(false));
   }, []);
 
