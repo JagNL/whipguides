@@ -136,6 +136,14 @@ export interface IStorage {
   likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }>;
   updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined>;
 
+  // Private group join requests
+  requestJoinGroup(groupId: number, userId: number, message?: string): Promise<void>;
+  cancelJoinRequest(groupId: number, userId: number): Promise<void>;
+  approveJoinRequest(groupId: number, userId: number, actorId: number): Promise<void>;
+  denyJoinRequest(groupId: number, userId: number): Promise<void>;
+  getJoinRequestStatus(groupId: number, userId: number): Promise<'none' | 'pending' | 'approved' | 'denied'>;
+  listPendingJoinRequests(groupId: number): Promise<any[]>;
+
   // Notifications
   createNotification(n: {
     userId: number;
@@ -659,6 +667,51 @@ export class SupabaseStorage implements IStorage {
   }
 
   // ──────────────────────────────────────────────────────────
+  // PRIVATE GROUP JOIN REQUESTS
+  // ──────────────────────────────────────────────────────────
+
+  async requestJoinGroup(groupId: number, userId: number, message?: string): Promise<void> {
+    await supabaseAdmin.from("group_join_requests").upsert({
+      group_id: groupId, user_id: userId, status: 'pending',
+      message: message || null, updated_at: new Date().toISOString(),
+    }, { onConflict: 'group_id,user_id' }).select().single().catch(() => null);
+  }
+
+  async cancelJoinRequest(groupId: number, userId: number): Promise<void> {
+    await supabaseAdmin.from("group_join_requests").delete().eq("group_id", groupId).eq("user_id", userId);
+  }
+
+  async approveJoinRequest(groupId: number, userId: number, actorId: number): Promise<void> {
+    await supabaseAdmin.from("group_join_requests").update({ status: 'approved', updated_at: new Date().toISOString() }).eq("group_id", groupId).eq("user_id", userId);
+    await this.joinGroup(groupId, userId);
+    // Delete the request after approved join
+    await supabaseAdmin.from("group_join_requests").delete().eq("group_id", groupId).eq("user_id", userId);
+  }
+
+  async denyJoinRequest(groupId: number, userId: number): Promise<void> {
+    await supabaseAdmin.from("group_join_requests").update({ status: 'denied', updated_at: new Date().toISOString() }).eq("group_id", groupId).eq("user_id", userId);
+  }
+
+  async getJoinRequestStatus(groupId: number, userId: number): Promise<'none' | 'pending' | 'approved' | 'denied'> {
+    const { data } = await supabaseAdmin.from("group_join_requests").select("status").eq("group_id", groupId).eq("user_id", userId).single();
+    return (data?.status as any) || 'none';
+  }
+
+  async listPendingJoinRequests(groupId: number): Promise<any[]> {
+    const { data } = await supabaseAdmin.from("group_join_requests").select("*").eq("group_id", groupId).eq("status", 'pending').order("created_at", { ascending: true });
+    const rows = data || [];
+    return Promise.all(rows.map(async (row: any) => ({
+      id: row.id,
+      groupId: row.group_id,
+      userId: row.user_id,
+      status: row.status,
+      message: row.message,
+      createdAt: row.created_at,
+      user: await this.getUser(row.user_id),
+    })));
+  }
+
+  // ──────────────────────────────────────────────────────────
   // NOTIFICATIONS
   // ──────────────────────────────────────────────────────────
 
@@ -1130,6 +1183,29 @@ export class MemStorage implements IStorage {
     const updated = { ...g, ...data };
     this.groups.set(id, updated);
     return updated;
+  }
+
+  // ── Private group join request stubs for MemStorage ──
+  private _joinRequests: Map<string, any> = new Map();
+  async requestJoinGroup(groupId: number, userId: number, message?: string): Promise<void> {
+    this._joinRequests.set(`${groupId}-${userId}`, { groupId, userId, status: 'pending', message, createdAt: new Date().toISOString() });
+  }
+  async cancelJoinRequest(groupId: number, userId: number): Promise<void> {
+    this._joinRequests.delete(`${groupId}-${userId}`);
+  }
+  async approveJoinRequest(groupId: number, userId: number, _actorId: number): Promise<void> {
+    this._joinRequests.delete(`${groupId}-${userId}`);
+    await this.joinGroup(groupId, userId);
+  }
+  async denyJoinRequest(groupId: number, userId: number): Promise<void> {
+    const r = this._joinRequests.get(`${groupId}-${userId}`);
+    if (r) this._joinRequests.set(`${groupId}-${userId}`, { ...r, status: 'denied' });
+  }
+  async getJoinRequestStatus(groupId: number, userId: number): Promise<'none' | 'pending' | 'approved' | 'denied'> {
+    return this._joinRequests.get(`${groupId}-${userId}`)?.status || 'none';
+  }
+  async listPendingJoinRequests(groupId: number): Promise<any[]> {
+    return Array.from(this._joinRequests.values()).filter(r => r.groupId === groupId && r.status === 'pending');
   }
 
   // ── Notification stubs for MemStorage ──

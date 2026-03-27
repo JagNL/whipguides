@@ -17,6 +17,7 @@ import {
   Users, MessageSquare, Heart, Share2, Plus,
   MoreHorizontal, TrendingUp, ImageIcon, X, Loader2,
   BookOpen, Search, Wrench, ChevronRight, Star, MapPin, UserCheck,
+  Lock, Clock, CheckCircle2, XCircle, UserPlus, Eye, EyeOff,
 } from "lucide-react";
 
 // ─── Guide search dropdown ────────────────────────────────────
@@ -575,10 +576,92 @@ function GroupSearchPanel({ groupId }: { groupId: number }) {
   );
 }
 
+// ─── Join Requests Panel (owner only) ────────────────────────────
+function JoinRequestsPanel({ groupId }: { groupId: number }) {
+  const { toast } = useToast();
+
+  const { data: requests = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/groups", groupId, "join-requests"],
+    queryFn: () => apiRequest("GET", `/api/groups/${groupId}/join-requests`).then(r => r.json()),
+    refetchInterval: 30_000,
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiRequest("POST", `/api/groups/${groupId}/join-requests/${userId}/approve`).then(r => r.json()),
+    onSuccess: () => { toast({ title: "Request approved" }); refetch(); queryClient.invalidateQueries({ queryKey: ["/api/groups", groupId] }); },
+  });
+
+  const denyMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiRequest("POST", `/api/groups/${groupId}/join-requests/${userId}/deny`).then(r => r.json()),
+    onSuccess: () => { toast({ title: "Request denied" }); refetch(); },
+  });
+
+  if (isLoading) return null;
+  if (!requests.length) return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <h3 className="font-semibold text-sm flex items-center gap-1.5 mb-2">
+        <UserPlus className="w-4 h-4 text-primary" /> Join Requests
+      </h3>
+      <p className="text-xs text-muted-foreground">No pending requests</p>
+    </div>
+  );
+
+  return (
+    <div className="bg-card border border-primary/30 rounded-xl p-4">
+      <h3 className="font-semibold text-sm flex items-center gap-2 mb-3">
+        <UserPlus className="w-4 h-4 text-primary" />
+        Join Requests
+        <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">{requests.length}</span>
+      </h3>
+      <div className="space-y-2">
+        {requests.map((req: any) => (
+          <div key={req.id} className="flex items-center gap-2 p-2 bg-secondary rounded-lg">
+            <Avatar className="w-7 h-7 shrink-0">
+              <AvatarImage src={req.user?.avatar} />
+              <AvatarFallback className="text-xs bg-primary/20 text-primary">
+                {req.user?.displayName?.[0]?.toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold truncate">{req.user?.displayName}</p>
+              <p className="text-[10px] text-muted-foreground">@{req.user?.username}</p>
+              {req.message && <p className="text-[10px] text-muted-foreground italic truncate mt-0.5">"{req.message}"</p>}
+            </div>
+            <div className="flex gap-1 shrink-0">
+              <button
+                onClick={() => approveMutation.mutate(req.userId)}
+                disabled={approveMutation.isPending}
+                className="w-6 h-6 rounded-full bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/30 flex items-center justify-center transition-colors"
+                title="Approve"
+                data-testid={`button-approve-${req.userId}`}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => denyMutation.mutate(req.userId)}
+                disabled={denyMutation.isPending}
+                className="w-6 h-6 rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/30 flex items-center justify-center transition-colors"
+                title="Deny"
+                data-testid={`button-deny-${req.userId}`}
+              >
+                <XCircle className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── GroupDetailPage ──────────────────────────────────────────
 export default function GroupDetailPage({ id }: { id: number }) {
   const { user, isAuthenticated } = useAuth();
   const { toast } = useToast();
+  const [requestMessage, setRequestMessage] = useState("");
+  const [showRequestForm, setShowRequestForm] = useState(false);
 
   const { data: group, isLoading: groupLoading } = useQuery<any>({
     queryKey: ["/api/groups", id],
@@ -588,6 +671,7 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const { data: posts = [], isLoading: postsLoading } = useQuery<any[]>({
     queryKey: ["/api/groups", id, "posts"],
     queryFn: () => apiRequest("GET", `/api/groups/${id}/posts`).then(r => r.json()),
+    // For private groups, only fetch if member
   });
 
   const { data: membershipData } = useQuery<{ isMember: boolean }>({
@@ -596,21 +680,62 @@ export default function GroupDetailPage({ id }: { id: number }) {
     enabled: isAuthenticated,
   });
   const isMember = membershipData?.isMember ?? false;
+  const isOwner = user && group && user.id === group.ownerId;
 
-  const { mutate: toggleMembership, isPending: joiningLeaving } = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", `/api/groups/${id}/${isMember ? "leave" : "join"}`).then(r => r.json()),
-    onSuccess: () => {
+  // Join request status (for private groups)
+  const { data: requestData, refetch: refetchRequest } = useQuery<{ status: string }>({
+    queryKey: ["/api/groups", id, "join-request"],
+    queryFn: () => apiRequest("GET", `/api/groups/${id}/join-request`).then(r => r.json()),
+    enabled: isAuthenticated && !isMember && !!group?.private,
+  });
+  const requestStatus = requestData?.status ?? 'none';
+
+  const joinMutation = useMutation({
+    mutationFn: (message?: string) =>
+      apiRequest("POST", `/api/groups/${id}/join`, { message }).then(r => r.json()),
+    onSuccess: (data) => {
+      if (data.requested) {
+        toast({ title: "Request sent!", description: "The group owner will review your request." });
+        refetchRequest();
+        setShowRequestForm(false);
+      } else {
+        toast({ title: "Joined group!" });
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/groups", id, "membership"] });
       queryClient.invalidateQueries({ queryKey: ["/api/groups", id] });
-      toast({ title: isMember ? "Left group" : "Joined group!" });
     },
-    onError: () => toast({ title: "Error", description: "Could not update membership.", variant: "destructive" }),
+    onError: () => toast({ title: "Error", description: "Could not join. Try again.", variant: "destructive" }),
   });
 
-  const handleJoinLeave = () => {
+  const leaveMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/groups/${id}/leave`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Left group" });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", id, "membership"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", id] });
+    },
+  });
+
+  const cancelRequestMutation = useMutation({
+    mutationFn: () => apiRequest("DELETE", `/api/groups/${id}/join-request`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Request cancelled" });
+      refetchRequest();
+    },
+  });
+
+  const handleJoinClick = () => {
     if (!isAuthenticated) { toast({ title: "Sign in required" }); return; }
-    toggleMembership();
+    if (isMember) { leaveMutation.mutate(); return; }
+    if (group?.private) {
+      setShowRequestForm(true);
+    } else {
+      joinMutation.mutate();
+    }
+  };
+
+  const handleSubmitRequest = () => {
+    joinMutation.mutate(requestMessage.trim() || undefined);
   };
 
   if (groupLoading) {
@@ -625,6 +750,20 @@ export default function GroupDetailPage({ id }: { id: number }) {
 
   if (!group) return <div className="p-8 text-center text-muted-foreground">Group not found.</div>;
 
+  // Private group: non-members can see name/description but NOT posts
+  const canSeePosts = !group.private || isMember || isOwner;
+  const isPending = requestStatus === 'pending';
+  const isDenied = requestStatus === 'denied';
+
+  // Join button label
+  const joinLabel = () => {
+    if (joinMutation.isPending || leaveMutation.isPending) return <Loader2 className="w-4 h-4 animate-spin" />;
+    if (isMember) return "Leave Group";
+    if (isPending) return <><Clock className="w-3.5 h-3.5" /> Request Pending</>;
+    if (group.private) return <><Lock className="w-3.5 h-3.5" /> Request to Join</>;
+    return "Join Group";
+  };
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
       {/* Cover + header */}
@@ -636,6 +775,12 @@ export default function GroupDetailPage({ id }: { id: number }) {
             <div className="w-full h-full flex items-center justify-center text-6xl opacity-20">🏁</div>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-card to-transparent" />
+          {/* Private badge on cover */}
+          {group.private && (
+            <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-background/80 backdrop-blur-sm text-xs font-semibold px-2.5 py-1 rounded-full border border-border">
+              <Lock className="w-3 h-3" /> Private Group
+            </div>
+          )}
         </div>
         <div className="px-5 pb-5 -mt-6 relative">
           <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -644,25 +789,85 @@ export default function GroupDetailPage({ id }: { id: number }) {
               <p className="text-muted-foreground text-sm mb-2">{group.description}</p>
               <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                 <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />{(group.memberCount || 0).toLocaleString()} members</span>
-                <span className="flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts</span>
+                {canSeePosts && <span className="flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts</span>}
                 <Badge className="text-xs">{group.category}</Badge>
+                {group.private && <span className="flex items-center gap-1 text-amber-400"><Lock className="w-3 h-3" /> Private</span>}
               </div>
             </div>
-            <Button
-              data-testid="button-join-group"
-              onClick={handleJoinLeave}
-              disabled={joiningLeaving}
-              variant={isMember ? "outline" : "default"}
-              className="shrink-0"
-            >
-              {joiningLeaving
-                ? <Loader2 className="w-4 h-4 animate-spin" />
-                : isMember ? "Leave Group" : "Join Group"
-              }
-            </Button>
+            <div className="flex flex-col items-end gap-2">
+              {/* Main action button */}
+              {!isPending && (
+                <Button
+                  data-testid="button-join-group"
+                  onClick={handleJoinClick}
+                  disabled={joinMutation.isPending || leaveMutation.isPending}
+                  variant={isMember ? "outline" : "default"}
+                  className="shrink-0 gap-1.5"
+                >
+                  {joinLabel()}
+                </Button>
+              )}
+              {/* Pending state */}
+              {isPending && (
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center gap-1.5 text-sm text-amber-400 font-medium">
+                    <Clock className="w-4 h-4" /> Request Pending
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => cancelRequestMutation.mutate()}
+                    disabled={cancelRequestMutation.isPending}
+                    className="text-muted-foreground hover:text-destructive text-xs"
+                    data-testid="button-cancel-request"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
+              {/* Denied state */}
+              {isDenied && !isMember && (
+                <p className="text-xs text-destructive flex items-center gap-1">
+                  <XCircle className="w-3.5 h-3.5" /> Request not approved
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Request to join form (private groups) */}
+      {showRequestForm && group.private && !isMember && (
+        <div className="bg-card border border-primary/30 rounded-xl p-5 mb-5">
+          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
+            <Lock className="w-4 h-4 text-primary" /> Request to Join {group.name}
+          </h3>
+          <p className="text-sm text-muted-foreground mb-3">
+            This is a private group. The owner will review your request.
+          </p>
+          <textarea
+            data-testid="textarea-join-message"
+            className="w-full bg-secondary border border-border rounded-lg p-3 text-sm resize-none outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground mb-3"
+            rows={3}
+            placeholder="Add a note to the group owner (optional)..."
+            value={requestMessage}
+            onChange={e => setRequestMessage(e.target.value)}
+          />
+          <div className="flex gap-2 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => setShowRequestForm(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              onClick={handleSubmitRequest}
+              disabled={joinMutation.isPending}
+              data-testid="button-submit-join-request"
+              className="gap-1.5"
+            >
+              {joinMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+              Send Request
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Two-column layout: feed + sidebar */}
       <div className="flex gap-5 items-start">
@@ -671,42 +876,70 @@ export default function GroupDetailPage({ id }: { id: number }) {
           {/* Post composer — only for members */}
           {isMember && user && <PostComposer groupId={id} user={user} />}
 
-          {/* Non-member nudge */}
-          {!isMember && isAuthenticated && (
+          {/* Private group locked state for non-members */}
+          {!canSeePosts && (
+            <div className="bg-card border border-border rounded-xl p-10 text-center mb-5">
+              <Lock className="w-10 h-10 mx-auto mb-3 text-muted-foreground/30" />
+              <p className="font-semibold text-foreground mb-1">This is a private group</p>
+              <p className="text-sm text-muted-foreground mb-5">
+                Only members can see posts and discussions.
+              </p>
+              {isAuthenticated && !isPending && (
+                <Button onClick={handleJoinClick} className="gap-1.5">
+                  <UserPlus className="w-4 h-4" /> Request to Join
+                </Button>
+              )}
+              {!isAuthenticated && (
+                <p className="text-xs text-muted-foreground">Sign in to request membership</p>
+              )}
+              {isPending && (
+                <p className="text-sm text-amber-400 flex items-center justify-center gap-1.5">
+                  <Clock className="w-4 h-4" /> Your request is pending approval
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Non-member nudge for public groups */}
+          {canSeePosts && !isMember && isAuthenticated && !group.private && (
             <div className="bg-primary/8 border border-primary/20 rounded-xl p-4 mb-5 flex items-center justify-between gap-4">
               <p className="text-sm text-muted-foreground">Join this group to post and share guides with members.</p>
-              <Button size="sm" onClick={handleJoinLeave} disabled={joiningLeaving} className="shrink-0">
+              <Button size="sm" onClick={handleJoinClick} disabled={joinMutation.isPending} className="shrink-0">
                 Join Group
               </Button>
             </div>
           )}
 
           {/* Posts feed */}
-          <div className="space-y-4">
-            {postsLoading ? (
-              Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="bg-card rounded-xl border border-border p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Skeleton className="w-9 h-9 rounded-full" />
-                    <div className="space-y-1"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-20" /></div>
+          {canSeePosts && (
+            <div className="space-y-4">
+              {postsLoading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="bg-card rounded-xl border border-border p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="w-9 h-9 rounded-full" />
+                      <div className="space-y-1"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-20" /></div>
+                    </div>
+                    <Skeleton className="h-16 w-full" />
                   </div>
-                  <Skeleton className="h-16 w-full" />
+                ))
+              ) : posts.length === 0 ? (
+                <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border">
+                  <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="font-semibold">No posts yet</p>
+                  <p className="text-sm mt-1">{isMember ? "Be the first to post — try attaching a guide!" : "Join to start posting."}</p>
                 </div>
-              ))
-            ) : posts.length === 0 ? (
-              <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border">
-                <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                <p className="font-semibold">No posts yet</p>
-                <p className="text-sm mt-1">{isMember ? "Be the first to post — try attaching a guide!" : "Join to start posting."}</p>
-              </div>
-            ) : (
-              posts.map(post => <PostCard key={post.id} post={post} currentUserId={user?.id} />)
-            )}
-          </div>
+              ) : (
+                posts.map(post => <PostCard key={post.id} post={post} currentUserId={user?.id} />)
+              )}
+            </div>
+          )}
         </div>
 
         {/* Sidebar */}
         <div className="hidden lg:block w-72 shrink-0 space-y-4 sticky top-20">
+          {/* Join requests panel — owner only */}
+          {isOwner && group.private && <JoinRequestsPanel groupId={id} />}
           <GroupSearchPanel groupId={id} />
           <RelatedGuides category={group.category} />
         </div>

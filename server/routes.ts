@@ -169,13 +169,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Join / leave group
+  // Join (public groups) OR request to join (private groups)
   app.post("/api/groups/:id/join", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
     const groupId = Number(req.params.id);
-    await storage.joinGroup(groupId, currentUser.id);
-    // Notify group owner
     const group = await storage.getGroup(groupId);
-    if (group && group.ownerId !== currentUser.id) {
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    if (group.private) {
+      // Private group — create a join request
+      await (storage as any).requestJoinGroup(groupId, currentUser.id, req.body.message);
+      // Notify owner
+      (storage as any).createNotification({
+        userId: group.ownerId,
+        type: "join_request",
+        title: `${currentUser.displayName} requested to join ${group.name}`,
+        body: req.body.message || null,
+        linkType: "group",
+        linkId: groupId,
+        actorId: currentUser.id,
+      }).catch(() => {});
+      return res.json({ requested: true });
+    }
+
+    // Public group — instant join
+    await storage.joinGroup(groupId, currentUser.id);
+    if (group.ownerId !== currentUser.id) {
       (storage as any).createNotification({
         userId: group.ownerId,
         type: "group_join",
@@ -192,6 +211,78 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/groups/:id/leave", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
     await storage.leaveGroup(Number(req.params.id), currentUser.id);
+    return res.json({ success: true });
+  });
+
+  // Cancel a pending join request
+  app.delete("/api/groups/:id/join-request", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await (storage as any).cancelJoinRequest(Number(req.params.id), currentUser.id);
+    return res.json({ success: true });
+  });
+
+  // GET join request status for current user
+  app.get("/api/groups/:id/join-request", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const status = await (storage as any).getJoinRequestStatus(Number(req.params.id), currentUser.id);
+    return res.json({ status });
+  });
+
+  // GET pending join requests (owner only)
+  app.get("/api/groups/:id/join-requests", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const group = await storage.getGroup(Number(req.params.id));
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    if (group.ownerId !== currentUser.id && (currentUser as any).siteRole !== 'super_admin') {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    const requests = await (storage as any).listPendingJoinRequests(Number(req.params.id));
+    return res.json(requests);
+  });
+
+  // Approve a join request (owner only)
+  app.post("/api/groups/:id/join-requests/:userId/approve", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const userId = Number(req.params.userId);
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    if (group.ownerId !== currentUser.id && (currentUser as any).siteRole !== 'super_admin') {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    await (storage as any).approveJoinRequest(groupId, userId, currentUser.id);
+    // Notify the requester
+    (storage as any).createNotification({
+      userId,
+      type: "join_approved",
+      title: `Your request to join ${group.name} was approved!`,
+      linkType: "group",
+      linkId: groupId,
+      actorId: currentUser.id,
+    }).catch(() => {});
+    return res.json({ success: true });
+  });
+
+  // Deny a join request (owner only)
+  app.post("/api/groups/:id/join-requests/:userId/deny", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const userId = Number(req.params.userId);
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    if (group.ownerId !== currentUser.id && (currentUser as any).siteRole !== 'super_admin') {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    await (storage as any).denyJoinRequest(groupId, userId);
+    // Notify the requester
+    (storage as any).createNotification({
+      userId,
+      type: "join_denied",
+      title: `Your request to join ${group.name} was not approved`,
+      linkType: "group",
+      linkId: groupId,
+      actorId: currentUser.id,
+    }).catch(() => {});
     return res.json({ success: true });
   });
 

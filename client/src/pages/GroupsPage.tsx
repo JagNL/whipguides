@@ -64,11 +64,12 @@ function GroupCard({ group }: { group: any }) {
               </span>
             </div>
             <Button
-              size="sm" variant="outline" className="text-xs h-7 px-3"
+              size="sm" variant="outline" className="text-xs h-7 px-3 gap-1"
               data-testid={`button-join-group-${group.id}`}
               onClick={e => e.preventDefault()}
             >
-              View
+              {group.private && <Lock className="w-3 h-3" />}
+              {group.private ? "Request" : "View"}
             </Button>
           </div>
         </div>
