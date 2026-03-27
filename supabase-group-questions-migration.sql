@@ -36,11 +36,11 @@ CREATE TABLE IF NOT EXISTS public.phone_verifications (
 );
 
 -- ── Add verified_phone to users ───────────────────────────────
+-- Note: account_age_days is computed at query time (NOW() is not immutable,
+-- so it can't be a generated/stored column in Postgres)
 ALTER TABLE public.users
   ADD COLUMN IF NOT EXISTS phone          TEXT,
-  ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS account_age_days INTEGER GENERATED ALWAYS AS
-    (EXTRACT(DAY FROM NOW() - created_at)::INTEGER) STORED;
+  ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT FALSE;
 
 -- ── Bot/spam protection signals ───────────────────────────────
 -- These columns let the server compute a risk score per join request

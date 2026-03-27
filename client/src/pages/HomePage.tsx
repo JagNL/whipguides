@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import ListingCard from "@/components/ListingCard";
 import AdCard, { injectAdsIntoFeed } from "@/components/AdCard";
+import LocationPicker from "@/components/LocationPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -213,6 +214,9 @@ export default function HomePage() {
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
+  const [searchLat, setSearchLat] = useState<number | undefined>();
+  const [searchLng, setSearchLng] = useState<number | undefined>();
+  const [radiusMiles, setRadiusMiles] = useState("any");
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [minYear, setMinYear] = useState("");
@@ -225,13 +229,17 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<"browse" | "foryou" | "recent">("browse");
 
   const hasActiveFilters = activeSearch || activeCategory !== "All" || condition !== "any" ||
-    minPrice || maxPrice || locationFilter || make || model || minYear || maxYear || minMileage || maxMileage;
+    minPrice || maxPrice || locationFilter || make || model || minYear || maxYear || minMileage || maxMileage || radiusMiles !== "any";
 
-  const currentFilters = { q: activeSearch, category: activeCategory, condition, minPrice, maxPrice, locationFilter, make, model, minYear, maxYear };
+  const currentFilters = { q: activeSearch, category: activeCategory, condition, minPrice, maxPrice, locationFilter, make, model, minYear, maxYear, radiusMiles };
 
   // ── Browse listings ──
+  const [activeSearchLat, setActiveSearchLat] = useState<number | undefined>();
+  const [activeSearchLng, setActiveSearchLng] = useState<number | undefined>();
+  const [activeRadius, setActiveRadius] = useState("any");
+
   const { data: listings = [], isLoading } = useQuery<any[]>({
-    queryKey: ["/api/search/listings", { q: activeSearch, activeCategory, condition, minPrice, maxPrice, locationFilter, make, model, minYear, maxYear, minMileage, maxMileage, sortBy }],
+    queryKey: ["/api/search/listings", { q: activeSearch, activeCategory, condition, minPrice, maxPrice, locationFilter, make, model, minYear, maxYear, minMileage, maxMileage, sortBy, activeSearchLat, activeSearchLng, activeRadius }],
     queryFn: () => {
       const params = new URLSearchParams();
       if (activeSearch) params.set("q", activeSearch);
@@ -247,6 +255,9 @@ export default function HomePage() {
       if (minMileage) params.set("minMileage", minMileage);
       if (maxMileage) params.set("maxMileage", maxMileage);
       if (sortBy !== "default") params.set("sort", sortBy);
+      if (activeSearchLat !== undefined) params.set("searchLat", String(activeSearchLat));
+      if (activeSearchLng !== undefined) params.set("searchLng", String(activeSearchLng));
+      if (activeRadius && activeRadius !== "any") params.set("radiusMiles", activeRadius);
       return apiRequest("GET", `/api/search/listings?${params.toString()}`).then(r => r.json());
     },
   });
@@ -286,6 +297,8 @@ export default function HomePage() {
   const resetFilters = () => {
     setSearch(""); setActiveSearch(""); setActiveCategory("All");
     setCondition("any"); setMinPrice(""); setMaxPrice(""); setLocationFilter("");
+    setSearchLat(undefined); setSearchLng(undefined); setRadiusMiles("any");
+    setActiveSearchLat(undefined); setActiveSearchLng(undefined); setActiveRadius("any");
     setMake(""); setModel(""); setMinYear(""); setMaxYear("");
     setMinMileage(""); setMaxMileage(""); setSortBy("default");
   };
@@ -530,9 +543,43 @@ export default function HomePage() {
                     <label className="text-xs font-medium text-muted-foreground">Model</label>
                     <Input placeholder="e.g. F-150" value={model} onChange={e => setModel(e.target.value)} className="h-8 text-sm bg-secondary" />
                   </div>
+                  <div className="space-y-1 col-span-2 sm:col-span-1">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> Near location
+                    </label>
+                    <LocationPicker
+                      value={locationFilter}
+                      onChange={(display, coords) => {
+                        setLocationFilter(display);
+                        setSearchLat(coords?.lat);
+                        setSearchLng(coords?.lng);
+                      }}
+                      placeholder="City, state or ZIP"
+                    />
+                  </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><MapPin className="w-3 h-3" />Location</label>
-                    <Input placeholder="City or state" value={locationFilter} onChange={e => setLocationFilter(e.target.value)} className="h-8 text-sm bg-secondary" />
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> Radius
+                    </label>
+                    <Select value={radiusMiles} onValueChange={setRadiusMiles} disabled={!searchLat}>
+                      <SelectTrigger className="h-8 text-sm bg-secondary">
+                        <SelectValue placeholder={searchLat ? "Any distance" : "Set location first"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">Any distance</SelectItem>
+                        <SelectItem value="10">Within 10 mi</SelectItem>
+                        <SelectItem value="25">Within 25 mi</SelectItem>
+                        <SelectItem value="50">Within 50 mi</SelectItem>
+                        <SelectItem value="100">Within 100 mi</SelectItem>
+                        <SelectItem value="250">Within 250 mi</SelectItem>
+                        <SelectItem value="500">Within 500 mi</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {searchLat && radiusMiles !== "any" && (
+                      <p className="text-[10px] text-emerald-400 flex items-center gap-1">
+                        <MapPin className="w-2.5 h-2.5" /> Location pinned
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><DollarSign className="w-3 h-3" />Min Price</label>
@@ -568,7 +615,12 @@ export default function HomePage() {
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={handleSearch} className="gap-1.5">
+                  <Button size="sm" onClick={() => {
+                    handleSearch();
+                    setActiveSearchLat(searchLat);
+                    setActiveSearchLng(searchLng);
+                    setActiveRadius(radiusMiles);
+                  }} className="gap-1.5">
                     <Search className="w-3.5 h-3.5" /> Apply Filters
                   </Button>
                 </div>

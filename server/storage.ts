@@ -399,6 +399,8 @@ export class SupabaseStorage implements IStorage {
       fits_year_min: l.fitsYearMin || null,
       fits_year_max: l.fitsYearMax || null,
       part_number: l.partNumber || null,
+      latitude: l.latitude ?? null,
+      longitude: l.longitude ?? null,
     }).select().single();
     if (error) throw new Error(error.message);
     return this.mapListing(data);
@@ -1130,8 +1132,36 @@ export class SupabaseStorage implements IStorage {
     else if (filters?.sort === "newest") qb = qb.order("created_at", { ascending: false });
     else if (filters?.sort === "mileage_asc") qb = qb.order("mileage", { ascending: true });
     else qb = qb.order("featured", { ascending: false }).order("created_at", { ascending: false });
-    const { data } = await qb.limit(100);
-    return (data || []).map(this.mapListing.bind(this));
+
+    // Fetch more when using radius filter so we have enough after post-filter
+    const fetchLimit = (filters as any)?.searchLat ? 500 : 100;
+    const { data } = await qb.limit(fetchLimit);
+    let results = (data || []).map(this.mapListing.bind(this));
+
+    // Radius-based distance filter (Haversine formula, client-side post-filter)
+    const searchLat = (filters as any)?.searchLat;
+    const searchLng = (filters as any)?.searchLng;
+    const radiusMiles = (filters as any)?.radiusMiles;
+    if (searchLat !== undefined && searchLng !== undefined && radiusMiles) {
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      const R = 3958.8; // Earth radius in miles
+      results = results.filter((l: any) => {
+        if (!l.latitude || !l.longitude) return true; // include listings without coords
+        const dLat = toRad(l.latitude - searchLat);
+        const dLng = toRad(l.longitude - searchLng);
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(toRad(searchLat)) * Math.cos(toRad(l.latitude)) *
+          Math.sin(dLng / 2) ** 2;
+        const dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        (l as any).distanceMiles = Math.round(dist);
+        return dist <= radiusMiles;
+      });
+      // Sort by distance when radius filter is active
+      results.sort((a: any, b: any) => (a.distanceMiles ?? 9999) - (b.distanceMiles ?? 9999));
+    }
+
+    return results.slice(0, 100);
   }
 
   async searchGroupPosts(groupId: number, query: string) {

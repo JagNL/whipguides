@@ -217,6 +217,9 @@ export default function ListingCard({ listing, compact = false }: ListingCardPro
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <div className="flex items-center gap-1">
               <MapPin className="w-3 h-3" />{listing.location}
+              {listing.distanceMiles !== undefined && (
+                <span className="ml-1 text-primary font-medium">· {listing.distanceMiles} mi away</span>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <span className="flex items-center gap-0.5"><Eye className="w-3 h-3" /> {listing.views || 0}</span>

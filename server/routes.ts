@@ -1017,7 +1017,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // GET /api/search/listings — marketplace search with full filters
   app.get("/api/search/listings", async (req, res) => {
-    const { q = "", category, condition, location, minPrice, maxPrice, sort, minYear, maxYear, make, model, minMileage, maxMileage } = req.query;
+    const {
+      q = "", category, condition, location, minPrice, maxPrice,
+      sort, minYear, maxYear, make, model, minMileage, maxMileage,
+      searchLat, searchLng, radiusMiles,
+    } = req.query;
     const results = await (storage as any).searchListings(q as string, {
       category: category as string | undefined,
       condition: condition as string | undefined,
@@ -1031,6 +1035,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       minMileage: minMileage ? Number(minMileage) : undefined,
       maxMileage: maxMileage ? Number(maxMileage) : undefined,
       sort: sort as string | undefined,
+      searchLat: searchLat ? Number(searchLat) : undefined,
+      searchLng: searchLng ? Number(searchLng) : undefined,
+      radiusMiles: radiusMiles ? Number(radiusMiles) : undefined,
     });
     // Enrich with seller
     const enriched = await Promise.all(results.map(async (l: any) => ({

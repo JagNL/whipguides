@@ -9,6 +9,7 @@ import { useLocation } from "wouter";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import ImageUploader from "@/components/ImageUploader";
+import LocationPicker from "@/components/LocationPicker";
 import {
   DollarSign, MapPin, Tag, Gauge, CheckSquare, Wrench, Package,
   Car, ChevronRight, ChevronLeft, Camera, Sparkles,
@@ -102,6 +103,8 @@ export default function CreateListingPage() {
   const [category, setCategory] = useState("");
   const [condition, setCondition] = useState("");
   const [location, setLocation] = useState("");
+  const [locationLat, setLocationLat] = useState<number | undefined>();
+  const [locationLng, setLocationLng] = useState<number | undefined>();
   // Vehicle fields
   const [year, setYear] = useState("");
   const [make, setMake] = useState("");
@@ -134,6 +137,8 @@ export default function CreateListingPage() {
         category,
         condition,
         location: location.trim(),
+        latitude: locationLat,
+        longitude: locationLng,
         images: uploadedImageIds,
         listingType,
         // Vehicle
@@ -400,16 +405,21 @@ export default function CreateListingPage() {
 
             {/* Location */}
             <Field label="Location" required>
-              <div className="relative">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                <Input
-                  data-testid="input-location"
-                  placeholder="City, State (e.g., Austin, TX)"
-                  value={location}
-                  onChange={e => setLocation(e.target.value)}
-                  className="pl-8 bg-secondary"
-                />
-              </div>
+              <LocationPicker
+                data-testid="input-location"
+                value={location}
+                onChange={(display, coords) => {
+                  setLocation(display);
+                  setLocationLat(coords?.lat);
+                  setLocationLng(coords?.lng);
+                }}
+                placeholder="City, State or ZIP code"
+              />
+              {locationLat && (
+                <p className="text-xs text-emerald-400 flex items-center gap-1 mt-1">
+                  <MapPin className="w-3 h-3" /> Location pinned — buyers can search by distance
+                </p>
+              )}
             </Field>
           </div>
         )}
