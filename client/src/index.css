@@ -176,3 +176,33 @@
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
 ::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/40; }
+
+/* ── Radius range slider thumb ───────────────────────────── */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: hsl(25 95% 53%);
+  border: 2px solid hsl(25 95% 70%);
+  cursor: pointer;
+  box-shadow: 0 0 0 3px hsl(25 95% 53% / 0.2);
+  transition: box-shadow 0.15s ease;
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  box-shadow: 0 0 0 5px hsl(25 95% 53% / 0.25);
+}
+input[type="range"]:disabled::-webkit-slider-thumb {
+  background: hsl(var(--muted-foreground));
+  border-color: hsl(var(--muted-foreground));
+  box-shadow: none;
+  cursor: not-allowed;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: hsl(25 95% 53%);
+  border: 2px solid hsl(25 95% 70%);
+  cursor: pointer;
+}

@@ -208,6 +208,182 @@ function SaveSearchModal({ filters, onClose, onSaved }: { filters: any; onClose:
   );
 }
 
+// ── Location + Radius Bar ──────────────────────────────────────────────
+const RADIUS_OPTIONS = [
+  { value: "any",  label: "Nationwide", miles: 0 },
+  { value: "10",   label: "10 mi",      miles: 10 },
+  { value: "25",   label: "25 mi",      miles: 25 },
+  { value: "50",   label: "50 mi",      miles: 50 },
+  { value: "100",  label: "100 mi",     miles: 100 },
+  { value: "250",  label: "250 mi",     miles: 250 },
+  { value: "500",  label: "500 mi",     miles: 500 },
+];
+
+function RadiusRing({ radiusMiles, hasLocation }: { radiusMiles: string; hasLocation: boolean }) {
+  const idx = RADIUS_OPTIONS.findIndex(r => r.value === radiusMiles);
+  const pct = idx <= 0 ? 0 : (idx / (RADIUS_OPTIONS.length - 1));
+  const size = 52;
+  const cx = size / 2;
+  const cy = size / 2;
+  // Outer ring (full)
+  const outerR = 22;
+  // Inner dot size scales with radius selection
+  const dotR = hasLocation ? Math.max(2, pct * 16) : 3;
+  // Arc showing coverage: strokeDasharray trick
+  const circumference = 2 * Math.PI * outerR;
+  const dash = pct * circumference;
+
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
+      {/* Background ring */}
+      <circle cx={cx} cy={cy} r={outerR} fill="none" stroke="hsl(var(--border))" strokeWidth="2" />
+      {/* Coverage arc */}
+      {pct > 0 && (
+        <circle
+          cx={cx} cy={cy} r={outerR}
+          fill="none"
+          stroke="hsl(25 95% 53%)"
+          strokeWidth="3"
+          strokeDasharray={`${dash} ${circumference}`}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${cx} ${cy})`}
+          style={{ transition: "stroke-dasharray 0.3s ease" }}
+        />
+      )}
+      {/* Coverage fill circle */}
+      {hasLocation && pct > 0 && (
+        <circle
+          cx={cx} cy={cy} r={dotR}
+          fill="hsl(25 95% 53% / 0.2)"
+          stroke="hsl(25 95% 53%)"
+          strokeWidth="1"
+          style={{ transition: "r 0.3s ease" }}
+        />
+      )}
+      {/* Center dot */}
+      <circle
+        cx={cx} cy={cy} r={3}
+        fill={hasLocation ? "hsl(25 95% 53%)" : "hsl(var(--muted-foreground))"}
+      />
+      {/* Location pin lines */}
+      {hasLocation && (
+        <>
+          <line x1={cx} y1={cy - 6} x2={cx} y2={cy - outerR + 4} stroke="hsl(25 95% 53%)" strokeWidth="1" strokeDasharray="2 2" opacity="0.5" />
+          <line x1={cx} y1={cy + 6} x2={cx} y2={cy + outerR - 4} stroke="hsl(25 95% 53%)" strokeWidth="1" strokeDasharray="2 2" opacity="0.5" />
+          <line x1={cx - 6} y1={cy} x2={cx - outerR + 4} y2={cy} stroke="hsl(25 95% 53%)" strokeWidth="1" strokeDasharray="2 2" opacity="0.5" />
+          <line x1={cx + 6} y1={cy} x2={cx + outerR - 4} y2={cy} stroke="hsl(25 95% 53%)" strokeWidth="1" strokeDasharray="2 2" opacity="0.5" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function LocationRadiusBar({
+  locationFilter, searchLat, radiusMiles,
+  onLocationChange, onRadiusChange, onClear,
+}: {
+  locationFilter: string;
+  searchLat: number | undefined;
+  radiusMiles: string;
+  onLocationChange: (display: string, coords?: { lat: number; lng: number }) => void;
+  onRadiusChange: (v: string) => void;
+  onClear: () => void;
+}) {
+  const hasLocation = !!searchLat;
+  const activeOption = RADIUS_OPTIONS.find(r => r.value === radiusMiles) || RADIUS_OPTIONS[0];
+
+  return (
+    <div className="border-b border-border bg-background sticky top-[57px] z-30 shadow-sm">
+      <div className="max-w-7xl mx-auto px-4 py-3">
+        <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+
+          {/* Visual radius ring */}
+          <RadiusRing radiusMiles={radiusMiles} hasLocation={hasLocation} />
+
+          {/* Location input */}
+          <div className="flex-1 min-w-0 max-w-xs">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Location</p>
+            <LocationPicker
+              value={locationFilter}
+              onChange={onLocationChange}
+              placeholder="ZIP code or city"
+            />
+          </div>
+
+          {/* Radius slider + label */}
+          <div className="flex-1 min-w-[180px] max-w-xs space-y-1">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Search radius</p>
+              <span className={`text-xs font-bold ${
+                hasLocation && radiusMiles !== "any" ? "text-primary" : "text-muted-foreground"
+              }`}>
+                {hasLocation && radiusMiles !== "any" ? `${radiusMiles} miles` : "Nationwide"}
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={RADIUS_OPTIONS.length - 1}
+              step={1}
+              value={RADIUS_OPTIONS.findIndex(r => r.value === radiusMiles).toString()}
+              onChange={e => {
+                const opt = RADIUS_OPTIONS[Number(e.target.value)];
+                onRadiusChange(opt.value);
+              }}
+              className="w-full h-2 rounded-full appearance-none cursor-pointer"
+              style={{
+                background: (() => {
+                  const idx = RADIUS_OPTIONS.findIndex(r => r.value === radiusMiles);
+                  const pct = idx <= 0 ? 0 : (idx / (RADIUS_OPTIONS.length - 1)) * 100;
+                  return `linear-gradient(to right, hsl(25 95% 53%) ${pct}%, hsl(var(--secondary)) ${pct}%)`;
+                })(),
+              }}
+              disabled={!hasLocation}
+            />
+            {/* Tick labels */}
+            <div className="flex justify-between text-[9px] text-muted-foreground px-0.5">
+              {RADIUS_OPTIONS.map(o => (
+                <button
+                  key={o.value}
+                  onClick={() => hasLocation && onRadiusChange(o.value)}
+                  className={`transition-colors ${
+                    o.value === radiusMiles ? "text-primary font-bold" : "hover:text-foreground"
+                  } ${!hasLocation ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Status + clear */}
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            {hasLocation && radiusMiles !== "any" ? (
+              <span className="text-xs text-emerald-400 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Active
+              </span>
+            ) : locationFilter && !hasLocation ? (
+              <span className="text-[10px] text-yellow-400">Pick from dropdown</span>
+            ) : (
+              <span className="text-[10px] text-muted-foreground">Set location to filter</span>
+            )}
+            {locationFilter && (
+              <button
+                onClick={onClear}
+                className="text-[10px] text-muted-foreground hover:text-destructive transition-colors flex items-center gap-0.5"
+              >
+                <X className="w-3 h-3" /> Clear
+              </button>
+            )}
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Module-level location memory (persists across navigation, not refresh) ─
 // Can't use localStorage in this iframe env, so we use module state.
 let _savedLocation = { display: "", lat: undefined as number | undefined, lng: undefined as number | undefined, radius: "any" };
@@ -402,67 +578,24 @@ export default function HomePage() {
       </div>
 
       {/* ─── Always-visible Location + Radius bar ──────────────── */}
-      <div className="border-b border-border bg-background sticky top-[57px] z-30 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center gap-2 flex-wrap sm:flex-nowrap">
-          <MapPin className="w-4 h-4 text-primary shrink-0" />
-          <div className="flex-1 min-w-0 max-w-sm">
-            <LocationPicker
-              value={locationFilter}
-              onChange={(display, coords) => {
-                setLocationFilter(display);
-                setSearchLat(coords?.lat);
-                setSearchLng(coords?.lng);
-                // Clear radius if location cleared
-                if (!display) setRadiusMiles("any");
-              }}
-              placeholder="ZIP code or city — search near you"
-            />
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Select
-              value={radiusMiles}
-              onValueChange={setRadiusMiles}
-              disabled={!searchLat && !locationFilter}
-            >
-              <SelectTrigger className="w-36 h-9 text-sm bg-secondary border-border">
-                <SelectValue placeholder="Distance" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="any">Any distance</SelectItem>
-                <SelectItem value="10">Within 10 mi</SelectItem>
-                <SelectItem value="25">Within 25 mi</SelectItem>
-                <SelectItem value="50">Within 50 mi</SelectItem>
-                <SelectItem value="100">Within 100 mi</SelectItem>
-                <SelectItem value="250">Within 250 mi</SelectItem>
-                <SelectItem value="500">Within 500 mi</SelectItem>
-              </SelectContent>
-            </Select>
-            {locationFilter && (
-              <button
-                onClick={() => {
-                  setLocationFilter("");
-                  setSearchLat(undefined);
-                  setSearchLng(undefined);
-                  setRadiusMiles("any");
-                }}
-                className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-lg hover:bg-muted/60"
-                title="Clear location"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          {searchLat && radiusMiles !== "any" && (
-            <span className="text-xs text-emerald-400 flex items-center gap-1 shrink-0">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Searching within {radiusMiles} mi
-            </span>
-          )}
-          {locationFilter && !searchLat && (
-            <span className="text-xs text-yellow-400 shrink-0">Select from dropdown to pin location</span>
-          )}
-        </div>
-      </div>
+      <LocationRadiusBar
+        locationFilter={locationFilter}
+        searchLat={searchLat}
+        radiusMiles={radiusMiles}
+        onLocationChange={(display, coords) => {
+          setLocationFilter(display);
+          setSearchLat(coords?.lat);
+          setSearchLng(coords?.lng);
+          if (!display) setRadiusMiles("any");
+        }}
+        onRadiusChange={setRadiusMiles}
+        onClear={() => {
+          setLocationFilter("");
+          setSearchLat(undefined);
+          setSearchLng(undefined);
+          setRadiusMiles("any");
+        }}
+      />
 
       <div className="max-w-7xl mx-auto px-4 py-6">
 
