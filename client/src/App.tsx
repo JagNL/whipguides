@@ -16,6 +16,7 @@ import AdminPage from "@/pages/AdminPage";
 import GuidesPage from "@/pages/GuidesPage";
 import GuideDetailPage from "@/pages/GuideDetailPage";
 import CreateGuidePage from "@/pages/CreateGuidePage";
+import AuthCallbackPage from "@/pages/AuthCallbackPage";
 import NotFound from "@/pages/not-found";
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="/guides" component={() => <Layout><GuidesPage /></Layout>} />
             <Route path="/guides/new" component={() => <Layout><CreateGuidePage /></Layout>} />
             <Route path="/guides/:id" component={({ params }) => <Layout><GuideDetailPage id={Number(params.id)} /></Layout>} />
+            <Route path="/auth/callback" component={() => <AuthCallbackPage />} />
             <Route component={NotFound} />
           </Switch>
         </Router>

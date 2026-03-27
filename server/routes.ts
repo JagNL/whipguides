@@ -441,6 +441,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/config", (_req, res) => {
     res.json({
       cfImagesUrl: process.env.CLOUDFLARE_IMAGES_URL || "",
+      supabaseUrl: process.env.SUPABASE_URL || "",
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "",
     });
   });
 

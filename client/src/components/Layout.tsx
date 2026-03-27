@@ -172,14 +172,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
             {/* Auth: logged out */}
             {!isLoading && !isAuthenticated && (
-              <div className="hidden sm:flex items-center gap-2">
-                <Button variant="ghost" size="sm" onClick={openLogin} data-testid="button-login">
-                  Sign In
-                </Button>
-                <Button size="sm" variant="outline" onClick={openRegister} data-testid="button-register">
-                  Join
-                </Button>
-              </div>
+              <Button size="sm" onClick={openLogin} data-testid="button-login" className="hidden sm:flex font-semibold">
+                Sign In
+              </Button>
             )}
 
             {/* Auth: logged in — user menu */}
@@ -293,15 +288,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 </Button>
               </>
             ) : (
-              <div className="flex gap-2 pt-1">
-                <Button className="flex-1" onClick={() => { openLogin(); setMobileMenuOpen(false); }}>
-                  Sign In
-                </Button>
-                <Button variant="outline" className="flex-1"
-                  onClick={() => { openRegister(); setMobileMenuOpen(false); }}>
-                  Join
-                </Button>
-              </div>
+              <Button className="w-full mt-1 font-semibold" onClick={() => { openLogin(); setMobileMenuOpen(false); }}>
+                Sign In
+              </Button>
             )}
           </div>
         )}

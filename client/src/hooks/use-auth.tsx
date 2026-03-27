@@ -30,6 +30,8 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, username: string, displayName: string) => Promise<void>;
+  loginWithOAuth: (provider: "google" | "facebook" | "apple") => Promise<void>;
+  handleOAuthCallback: () => Promise<boolean>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -129,6 +131,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     applySession(data.session, data.user);
   }, [applySession]);
 
+  const loginWithOAuth = useCallback(async (provider: "google" | "facebook" | "apple") => {
+    const { getSupabaseClient } = await import("@/lib/supabase-client");
+    const supabase = await getSupabaseClient();
+    const redirectTo = `${window.location.origin}/#/auth/callback`;
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider,
+      options: { redirectTo },
+    });
+    if (error) throw new Error(error.message);
+    // Browser will redirect to provider — nothing more to do here
+  }, []);
+
+  // Call this on the /#/auth/callback route to exchange the OAuth token
+  const handleOAuthCallback = useCallback(async (): Promise<boolean> => {
+    try {
+      const { getSupabaseClient } = await import("@/lib/supabase-client");
+      const supabase = await getSupabaseClient();
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session) return false;
+      const { access_token, refresh_token, expires_at } = data.session;
+      // Exchange with our backend to get/create WhipGuides profile
+      const res = await apiRequest("POST", "/api/auth/oauth", { access_token, refresh_token, expires_at });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      applySession(json.session, json.user);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [applySession]);
+
   const logout = useCallback(async () => {
     if (session) {
       try {
@@ -155,6 +188,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: !!user,
       login,
       register,
+      loginWithOAuth,
+      handleOAuthCallback,
       logout,
       refreshUser,
     }}>

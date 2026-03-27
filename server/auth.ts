@@ -150,6 +150,52 @@ authRouter.get("/me", requireAuth, async (req, res) => {
   res.json({ user });
 });
 
+// OAuth session exchange — client sends Supabase access_token from OAuth redirect
+// We verify it, auto-create a profile if needed, return our session
+authRouter.post("/oauth", async (req, res) => {
+  const { access_token, refresh_token, expires_at } = req.body;
+  if (!access_token) return res.status(400).json({ error: "access_token required" });
+
+  // Verify the token
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(access_token);
+  if (error || !user) return res.status(401).json({ error: "Invalid token" });
+
+  // Find or create profile
+  let profile = await storage.getUserByAuthId(user.id);
+  if (!profile) {
+    // Auto-generate username from email or provider metadata
+    const meta = user.user_metadata || {};
+    const rawName = meta.full_name || meta.name || meta.preferred_username || user.email?.split("@")[0] || "user";
+    const baseUsername = rawName.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 18) || "user";
+    // Make username unique
+    let username = baseUsername;
+    let attempt = 0;
+    while (await storage.getUserByUsername(username)) {
+      attempt++;
+      username = `${baseUsername}${attempt}`;
+    }
+    const displayName = meta.full_name || meta.name || rawName;
+    const avatar = meta.avatar_url || meta.picture || null;
+    profile = await storage.createUser({
+      username,
+      displayName,
+      avatar,
+      memberSince: new Date().toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+      authId: user.id,
+      email: user.email,
+    });
+  }
+
+  if ((profile as any)?.banned) {
+    return res.status(403).json({ error: "Your account has been suspended." });
+  }
+
+  res.json({
+    user: profile,
+    session: { access_token, refresh_token, expires_at },
+  });
+});
+
 // Refresh token
 authRouter.post("/refresh", async (req, res) => {
   const { refresh_token } = req.body;
