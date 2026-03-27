@@ -573,17 +573,17 @@ export default function AdvertisePage() {
 
   if (!user) {
     return (
-      <div className="max-w-2xl mx-auto py-20 text-center space-y-4">
+      <div className="max-w-2xl mx-auto px-6 py-20 text-center space-y-4">
         <Megaphone className="w-12 h-12 text-primary mx-auto opacity-60" />
         <h1 className="text-2xl font-bold">Advertise on WhipGuides</h1>
-        <p className="text-muted-foreground">Sign in to create your ad account and reach thousands of car enthusiasts.</p>
+        <p className="text-muted-foreground">Sign in to create your ad account and reach enthusiasts across cars, trucks, outdoors, maker communities, and more.</p>
       </div>
     );
   }
 
   if (accountLoading) {
     return (
-      <div className="max-w-2xl mx-auto py-12 space-y-4">
+      <div className="max-w-2xl mx-auto px-4 py-12 space-y-4">
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-64 rounded-xl" />
       </div>
