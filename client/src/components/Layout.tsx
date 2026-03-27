@@ -324,10 +324,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <a href="#" className="hover:text-foreground transition-colors">Terms</a>
             <a href="#" className="hover:text-foreground transition-colors">Privacy</a>
             <a href="#" className="hover:text-foreground transition-colors">Safety</a>
-            <a href="https://www.perplexity.ai/computer" target="_blank" rel="noopener noreferrer"
-              className="hover:text-foreground transition-colors">
-              Created with Perplexity Computer
-            </a>
+
           </div>
         </div>
       </footer>
