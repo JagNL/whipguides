@@ -209,10 +209,7 @@ function SaveSearchModal({ filters, onClose, onSaved }: { filters: any; onClose:
 }
 
 // ── Location + Radius Bar ─────────────────────────────────────────────
-// Continuous 0–500 mi slider with snap markers at standard distances.
-// Map is fully interactive with zoom in/out buttons + scroll wheel.
 
-// Standard snap markers shown as demarcations on the track
 const SNAP_MARKERS = [
   { miles: 0,   label: "Any" },
   { miles: 10,  label: "10" },
@@ -224,25 +221,119 @@ const SNAP_MARKERS = [
 ];
 const MAX_MILES = 500;
 
-// Snap to nearest marker if within 8 miles of it
 function snapMiles(raw: number): number {
   const nearest = SNAP_MARKERS.find(m => Math.abs(m.miles - raw) <= 8);
   return nearest ? nearest.miles : raw;
 }
+function milesToKm(mi: number): string { return (mi * 1.609).toFixed(0); }
 
-function milesToKm(mi: number): string {
-  return (mi * 1.609).toFixed(0);
-}
+// ── Leaflet map component — loaded once, never remounts ────────────
+// Uses Leaflet CDN via script injection for smooth pan/zoom/scroll wheel.
+function LeafletMap({
+  lat, lng, radiusMiles,
+}: {
+  lat: number; lng: number; radiusMiles: number;
+}) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const leafletRef = useRef<any>(null);    // L
+  const mapInstanceRef = useRef<any>(null); // L.Map
+  const circleRef = useRef<any>(null);
 
-// OSM zoom level that roughly fits the radius
-function radiusToZoom(miles: number): number {
-  if (miles === 0)   return 11;
-  if (miles <= 10)   return 11;
-  if (miles <= 25)   return 10;
-  if (miles <= 50)   return 9;
-  if (miles <= 100)  return 8;
-  if (miles <= 250)  return 7;
-  return 6;
+  // Load Leaflet CSS + JS once
+  useEffect(() => {
+    if (!document.getElementById("leaflet-css")) {
+      const link = document.createElement("link");
+      link.id = "leaflet-css";
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+
+    const initMap = () => {
+      if (!mapRef.current || mapInstanceRef.current) return;
+      const L = (window as any).L;
+      if (!L) return;
+      leafletRef.current = L;
+
+      const map = L.map(mapRef.current, {
+        center: [lat, lng],
+        zoom: 11,
+        zoomControl: true,
+        scrollWheelZoom: true,
+      });
+      mapInstanceRef.current = map;
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 18,
+      }).addTo(map);
+
+      // Custom orange marker
+      const icon = L.divIcon({
+        className: "",
+        html: `<div style="width:16px;height:16px;background:hsl(25 95% 53%);border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
+        iconSize: [16, 16],
+        iconAnchor: [8, 8],
+      });
+      L.marker([lat, lng], { icon }).addTo(map);
+    };
+
+    if ((window as any).L) {
+      initMap();
+    } else if (!document.getElementById("leaflet-js")) {
+      const script = document.createElement("script");
+      script.id = "leaflet-js";
+      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      script.onload = initMap;
+      document.head.appendChild(script);
+    } else {
+      // Script tag exists but still loading — poll
+      const poll = setInterval(() => {
+        if ((window as any).L) { clearInterval(poll); initMap(); }
+      }, 100);
+    }
+
+    return () => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []); // only on mount
+
+  // Update circle when radius changes — no remount
+  useEffect(() => {
+    const L = leafletRef.current;
+    const map = mapInstanceRef.current;
+    if (!L || !map) return;
+
+    if (circleRef.current) {
+      circleRef.current.remove();
+      circleRef.current = null;
+    }
+    if (radiusMiles > 0) {
+      circleRef.current = L.circle([lat, lng], {
+        radius: radiusMiles * 1609.34,
+        color: "hsl(25, 95%, 53%)",
+        fillColor: "hsl(25, 95%, 53%)",
+        fillOpacity: 0.08,
+        weight: 2,
+      }).addTo(map);
+
+      // Fit map to circle bounds smoothly
+      map.flyToBounds(circleRef.current.getBounds(), { duration: 0.4, padding: [20, 20] });
+    } else {
+      map.flyTo([lat, lng], 11, { duration: 0.4 });
+    }
+  }, [radiusMiles, lat, lng]);
+
+  return (
+    <div
+      ref={mapRef}
+      className="w-full h-full"
+      style={{ minHeight: "208px" }}
+    />
+  );
 }
 
 function LocationRadiusBar({
@@ -258,19 +349,12 @@ function LocationRadiusBar({
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [zoom, setZoom] = useState(10);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const hasLocation = !!searchLat;
   const currentMiles = radiusMiles === "any" ? 0 : Math.max(0, Math.min(MAX_MILES, Number(radiusMiles)));
   const sliderPct = (currentMiles / MAX_MILES) * 100;
 
-  // Keep zoom in sync with radius changes
-  useEffect(() => {
-    setZoom(radiusToZoom(currentMiles));
-  }, [currentMiles]);
-
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
@@ -284,44 +368,27 @@ function LocationRadiusBar({
     onRadiusChange(snapped === 0 ? "any" : String(snapped));
   };
 
-  const zoomIn  = () => setZoom(z => Math.min(18, z + 1));
-  const zoomOut = () => setZoom(z => Math.max(3, z - 1));
-
-  // Pill label
   const activeLabel = hasLocation && currentMiles > 0
     ? `${locationFilter} · ${currentMiles} mi`
     : locationFilter || "Nationwide";
-
-  // OSM embed
-  const mapUrl = hasLocation && searchLng !== undefined
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${searchLng - 0.01},${searchLat! - 0.01},${searchLng + 0.01},${searchLat! + 0.01}&layer=mapnik&marker=${searchLat},${searchLng}&zoom=${zoom}`
-    : null;
-
-  // Circle overlay size: % of map width, capped so it never overflows
-  const circleSize = currentMiles === 0 ? 0 : Math.min(92, Math.max(12, sliderPct * 0.94));
 
   return (
     <div className="border-b border-border bg-background sticky top-[57px] z-30 shadow-sm" ref={panelRef}>
       <div className="max-w-7xl mx-auto px-4 py-2">
 
-        {/* ── Collapsed pill ── */}
+        {/* Collapsed pill */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => setOpen(o => !o)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all
-              ${open
-                ? "bg-primary/10 border-primary text-primary"
-                : hasLocation
-                  ? "bg-secondary border-border hover:border-primary/40 text-foreground"
-                  : "bg-secondary border-border hover:border-primary/40 text-muted-foreground"
-              }`}
+              ${open ? "bg-primary/10 border-primary text-primary"
+                : hasLocation ? "bg-secondary border-border hover:border-primary/40 text-foreground"
+                : "bg-secondary border-border hover:border-primary/40 text-muted-foreground"}`}
             data-testid="button-location-pill"
           >
             <MapPin className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate max-w-[220px]">{activeLabel}</span>
-            {hasLocation && currentMiles > 0 && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-            )}
+            {hasLocation && currentMiles > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />}
             <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
           {(locationFilter || currentMiles > 0) && (
@@ -331,63 +398,14 @@ function LocationRadiusBar({
           )}
         </div>
 
-        {/* ── Expanded panel ── */}
+        {/* Expanded panel */}
         {open && (
           <div className="mt-2 mb-1 bg-card border border-border rounded-2xl overflow-hidden shadow-2xl max-w-lg">
 
-            {/* Interactive map */}
-            <div className="relative w-full h-52 bg-muted/30 overflow-hidden select-none">
-              {mapUrl ? (
-                <>
-                  <iframe
-                    key={`${searchLat}-${searchLng}-${zoom}`}
-                    src={mapUrl}
-                    title="Search area map"
-                    className="w-full h-full border-0"
-                    style={{ pointerEvents: "none" }}
-                    loading="lazy"
-                  />
-
-                  {/* Radius circle overlay */}
-                  {currentMiles > 0 && (
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                      <div
-                        className="rounded-full border-2 border-primary bg-primary/10 transition-all duration-300"
-                        style={{ width: `${circleSize}%`, aspectRatio: "1" }}
-                      />
-                    </div>
-                  )}
-
-                  {/* Center pin */}
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="flex flex-col items-center gap-0.5 drop-shadow-lg">
-                      <MapPin className="w-5 h-5 text-primary" fill="hsl(25 95% 53%)" />
-                    </div>
-                  </div>
-
-                  {/* Zoom controls */}
-                  <div className="absolute top-2 right-2 flex flex-col gap-1">
-                    <button
-                      onClick={zoomIn}
-                      className="w-7 h-7 bg-card/90 backdrop-blur border border-border rounded-lg flex items-center justify-center text-sm font-bold hover:bg-card hover:border-primary/40 transition-all shadow-sm"
-                      title="Zoom in"
-                    >
-                      +
-                    </button>
-                    <button
-                      onClick={zoomOut}
-                      className="w-7 h-7 bg-card/90 backdrop-blur border border-border rounded-lg flex items-center justify-center text-sm font-bold hover:bg-card hover:border-primary/40 transition-all shadow-sm"
-                      title="Zoom out"
-                    >
-                      −
-                    </button>
-                  </div>
-
-                  {/* Zoom level badge */}
-                  <div className="absolute bottom-2 right-2 bg-card/80 backdrop-blur text-[10px] text-muted-foreground px-1.5 py-0.5 rounded border border-border/50">
-                    zoom {zoom}
-                  </div>
-                </>
+            {/* Leaflet map */}
+            <div className="relative w-full bg-muted/30 overflow-hidden" style={{ height: "208px" }}>
+              {hasLocation && searchLat && searchLng !== undefined ? (
+                <LeafletMap lat={searchLat} lng={searchLng} radiusMiles={currentMiles} />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
                   <MapPin className="w-7 h-7 opacity-20" />
@@ -401,11 +419,7 @@ function LocationRadiusBar({
               {/* Location input */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Your location</label>
-                <LocationPicker
-                  value={locationFilter}
-                  onChange={onLocationChange}
-                  placeholder="ZIP code or city"
-                />
+                <LocationPicker value={locationFilter} onChange={onLocationChange} placeholder="ZIP code or city" />
                 {locationFilter && !hasLocation && (
                   <p className="text-[10px] text-yellow-400">Pick from the dropdown to pin your location on the map</p>
                 )}
@@ -415,15 +429,13 @@ function LocationRadiusBar({
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Search radius</label>
-
-                  {/* Distance calculator display */}
                   {hasLocation && currentMiles > 0 ? (
                     <div className="flex items-center gap-2">
                       <div className="bg-primary/10 border border-primary/30 rounded-lg px-3 py-1 text-center">
                         <span className="text-base font-extrabold text-primary">{currentMiles}</span>
                         <span className="text-xs text-primary/80 ml-1">mi</span>
                       </div>
-                      <div className="text-muted-foreground text-xs">≈</div>
+                      <span className="text-muted-foreground text-xs">≈</span>
                       <div className="bg-secondary border border-border rounded-lg px-2 py-1 text-center">
                         <span className="text-sm font-bold">{milesToKm(currentMiles)}</span>
                         <span className="text-xs text-muted-foreground ml-1">km</span>
@@ -434,68 +446,46 @@ function LocationRadiusBar({
                   )}
                 </div>
 
-                {/* Slider track with snap markers */}
+                {/* Track with snap ticks */}
                 <div className={`relative ${!hasLocation ? "opacity-40 pointer-events-none" : ""}`}>
-                  {/* Snap marker ticks on the track */}
-                  <div className="relative h-2 rounded-full mb-1" style={{
+                  <div className="relative h-2 rounded-full" style={{
                     background: `linear-gradient(to right, hsl(25 95% 53%) ${sliderPct}%, hsl(var(--secondary)) ${sliderPct}%)`
                   }}>
                     {SNAP_MARKERS.filter(m => m.miles > 0).map(m => {
                       const pct = (m.miles / MAX_MILES) * 100;
-                      const isActive = currentMiles >= m.miles;
                       return (
-                        <div
-                          key={m.miles}
-                          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1 h-3 rounded-full transition-colors"
-                          style={{
-                            left: `${pct}%`,
-                            background: isActive ? "hsl(25 95% 70%)" : "hsl(var(--border))",
-                          }}
-                        />
+                        <div key={m.miles} className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-0.5 h-3 rounded-full"
+                          style={{ left: `${pct}%`, background: currentMiles >= m.miles ? "hsl(25 95% 70%)" : "hsl(var(--border))" }} />
                       );
                     })}
                   </div>
-
                   <input
-                    type="range"
-                    min={0}
-                    max={MAX_MILES}
-                    step={1}
+                    type="range" min={0} max={MAX_MILES} step={1}
                     value={currentMiles}
                     onChange={e => handleSliderChange(Number(e.target.value))}
                     disabled={!hasLocation}
-                    className="absolute inset-0 w-full h-2 opacity-0 cursor-pointer"
+                    className="absolute inset-0 w-full h-2 opacity-0 cursor-pointer disabled:cursor-not-allowed"
                   />
                 </div>
 
-                {/* Snap marker labels */}
-                <div className="flex justify-between px-0 -mt-1">
-                  {SNAP_MARKERS.map(m => {
-                    const isActive = m.miles === currentMiles;
-                    return (
-                      <button
-                        key={m.miles}
-                        onClick={() => hasLocation && onRadiusChange(m.miles === 0 ? "any" : String(m.miles))}
-                        disabled={!hasLocation}
-                        className={`text-[10px] font-medium transition-all px-1 py-0.5 rounded
-                          ${isActive
-                            ? "text-primary bg-primary/10 font-bold"
-                            : "text-muted-foreground hover:text-foreground"
-                          }
-                          ${!hasLocation ? "cursor-not-allowed" : "cursor-pointer"}`}
-                      >
-                        {m.label}
-                      </button>
-                    );
-                  })}
+                {/* Snap label buttons */}
+                <div className="flex justify-between">
+                  {SNAP_MARKERS.map(m => (
+                    <button key={m.miles}
+                      onClick={() => hasLocation && onRadiusChange(m.miles === 0 ? "any" : String(m.miles))}
+                      disabled={!hasLocation}
+                      className={`text-[10px] font-medium px-1 py-0.5 rounded transition-all
+                        ${m.miles === currentMiles ? "text-primary bg-primary/10 font-bold" : "text-muted-foreground hover:text-foreground"}
+                        ${!hasLocation ? "cursor-not-allowed" : "cursor-pointer"}`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
                 </div>
 
-                {!hasLocation && (
-                  <p className="text-[10px] text-muted-foreground text-center">Set a location above to enable radius filtering</p>
-                )}
+                {!hasLocation && <p className="text-[10px] text-muted-foreground text-center">Set a location above to enable radius filtering</p>}
               </div>
 
-              {/* Apply */}
               <div className="flex justify-end">
                 <Button size="sm" onClick={() => setOpen(false)} className="gap-1.5">
                   <Search className="w-3.5 h-3.5" /> Apply
