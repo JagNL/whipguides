@@ -263,7 +263,7 @@ export default function HomePage() {
   const { data: recentlyViewed = [] } = useQuery<any[]>({
     queryKey: ["/api/recently-viewed", sessionId],
     queryFn: () => apiRequest("GET", "/api/recently-viewed", undefined).then(r => r.json()),
-    enabled: activeTab === "recent" || recentlyViewed.length > 0,
+    enabled: true, // always fetch — self-referencing in enabled caused TDZ crash
   });
 
   // ── Saved searches ──
