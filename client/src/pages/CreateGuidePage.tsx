@@ -276,6 +276,7 @@ export default function CreateGuidePage() {
               <SelectValue placeholder="Select category" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="none">No category</SelectItem>
               {CATEGORIES.map(c => (
                 <SelectItem key={c} value={c}>{c}</SelectItem>
               ))}

@@ -170,8 +170,8 @@ export default function GuidesPage() {
     queryKey: ["/api/guides", { category, difficulty, search: activeSearch }],
     queryFn: () => {
       const params = new URLSearchParams();
-      if (category) params.set("category", category);
-      if (difficulty) params.set("difficulty", difficulty);
+      if (category && category !== "all") params.set("category", category);
+      if (difficulty && difficulty !== "all") params.set("difficulty", difficulty);
       if (activeSearch) params.set("search", activeSearch);
       return apiRequest("GET", `/api/guides?${params.toString()}`).then(r => r.json());
     },
@@ -191,11 +191,11 @@ export default function GuidesPage() {
   const resetFilters = () => {
     setSearch("");
     setActiveSearch("");
-    setCategory("");
-    setDifficulty("");
+    setCategory("all");
+    setDifficulty("all");
   };
 
-  const hasFilters = activeSearch || category || difficulty;
+  const hasFilters = activeSearch || (category && category !== "all") || (difficulty && difficulty !== "all");
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -241,7 +241,7 @@ export default function GuidesPage() {
               <SelectValue placeholder="Any difficulty" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Any difficulty</SelectItem>
+              <SelectItem value="all">Any difficulty</SelectItem>
               {DIFFICULTIES.map(d => (
                 <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
               ))}
@@ -254,7 +254,7 @@ export default function GuidesPage() {
               <SelectValue placeholder="Any category" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Any category</SelectItem>
+              <SelectItem value="all">Any category</SelectItem>
               {CATEGORIES.map(c => (
                 <SelectItem key={c.value} value={c.value}>{c.value}</SelectItem>
               ))}
