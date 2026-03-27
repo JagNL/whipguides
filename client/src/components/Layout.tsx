@@ -8,10 +8,11 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Search, Plus, Bell, Sun, Moon, Menu, X,
+  Search, Plus, Sun, Moon, Menu, X,
   Gauge, Users, LogOut, User, MessageSquare,
   ShieldCheck, ChevronDown, Shield, BookOpen,
 } from "lucide-react";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthModal } from "@/components/AuthModal";
 import { useToast } from "@/hooks/use-toast";
@@ -149,16 +150,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             )}
 
             {/* Notifications */}
-            <Button
-              size="icon" variant="ghost"
-              className="text-muted-foreground h-9 w-9 hidden sm:flex relative"
-              data-testid="button-notifications"
-            >
-              <Bell className="w-4 h-4" />
-              {isAuthenticated && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary" />
-              )}
-            </Button>
+            {isAuthenticated && (
+              <div className="hidden sm:flex">
+                <NotificationBell />
+              </div>
+            )}
 
             {/* List Item button */}
             <Button

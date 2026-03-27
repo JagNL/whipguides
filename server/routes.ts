@@ -78,8 +78,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json({ ...listing, seller });
   });
 
-  app.post("/api/listings/:id/save", async (req, res) => {
-    await storage.saveListing(Number(req.params.id));
+  app.post("/api/listings/:id/save", requireAuth, async (req, res) => {
+    const listingId = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    await storage.saveListing(listingId);
+    // Notify seller
+    const listing = await storage.getListing(listingId);
+    if (listing && currentUser) {
+      (storage as any).createNotification({
+        userId: listing.sellerId,
+        type: "listing_save",
+        title: `${currentUser.displayName} saved your listing`,
+        body: listing.title,
+        linkType: "listing",
+        linkId: listingId,
+        actorId: currentUser.id,
+      }).catch(() => {});
+    }
     return res.json({ success: true });
   });
 
@@ -156,7 +171,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Join / leave group
   app.post("/api/groups/:id/join", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
-    await storage.joinGroup(Number(req.params.id), currentUser.id);
+    const groupId = Number(req.params.id);
+    await storage.joinGroup(groupId, currentUser.id);
+    // Notify group owner
+    const group = await storage.getGroup(groupId);
+    if (group && group.ownerId !== currentUser.id) {
+      (storage as any).createNotification({
+        userId: group.ownerId,
+        type: "group_join",
+        title: `${currentUser.displayName} joined your group`,
+        body: group.name,
+        linkType: "group",
+        linkId: groupId,
+        actorId: currentUser.id,
+      }).catch(() => {});
+    }
     return res.json({ success: true });
   });
 
@@ -226,7 +255,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Like / unlike a post
   app.post("/api/posts/:id/like", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
-    const result = await storage.likePost(Number(req.params.id), currentUser.id);
+    const postId = Number(req.params.id);
+    const result = await storage.likePost(postId, currentUser.id);
+    // Notify post author if this is a new like
+    if (result.liked) {
+      const post = await storage.getPost(postId);
+      if (post && post.authorId !== currentUser.id) {
+        (storage as any).createNotification({
+          userId: post.authorId,
+          type: "post_like",
+          title: `${currentUser.displayName} liked your post`,
+          linkType: "group",
+          linkId: post.groupId,
+          actorId: currentUser.id,
+        }).catch(() => {});
+      }
+    }
     return res.json(result);
   });
 
@@ -312,6 +356,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     try {
       const message = await storage.sendMessage(convId, currentUser.id, content.trim());
+      // Notify the other participant
+      const recipientId = conv.participant1Id === currentUser.id ? conv.participant2Id : conv.participant1Id;
+      (storage as any).createNotification({
+        userId: recipientId,
+        type: "message",
+        title: `New message from ${currentUser.displayName}`,
+        body: content.length > 60 ? content.slice(0, 60) + "..." : content,
+        linkType: "message",
+        linkId: convId,
+        actorId: currentUser.id,
+      }).catch(() => {});
       return res.status(201).json(message);
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -406,6 +461,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const id = Number(req.params.id);
     const currentUser = (req as any).currentUser;
     const result = await storage.likeGuide(id, currentUser.id);
+    // Notify guide author on new like
+    if (result.liked) {
+      const guide = await storage.getGuide(id);
+      if (guide && guide.authorId !== currentUser.id) {
+        (storage as any).createNotification({
+          userId: guide.authorId,
+          type: "guide_like",
+          title: `${currentUser.displayName} liked your guide`,
+          body: guide.title,
+          linkType: "guide",
+          linkId: id,
+          actorId: currentUser.id,
+        }).catch(() => {});
+      }
+    }
     return res.json(result);
   });
 
@@ -423,6 +493,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const { content } = req.body;
     if (!content?.trim()) return res.status(400).json({ error: "Comment cannot be empty" });
     const comment = await storage.createGuideComment(id, currentUser.id, content.trim());
+    // Notify guide author
+    const guide = await storage.getGuide(id);
+    if (guide && guide.authorId !== currentUser.id) {
+      (storage as any).createNotification({
+        userId: guide.authorId,
+        type: "guide_comment",
+        title: `${currentUser.displayName} commented on your guide`,
+        body: content.length > 80 ? content.slice(0, 80) + "..." : content,
+        linkType: "guide",
+        linkId: id,
+        actorId: currentUser.id,
+      }).catch(() => {});
+    }
     return res.status(201).json(comment);
   });
 
@@ -432,6 +515,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const currentUser = (req as any).currentUser;
     // Only admin can delete others' comments (simplified — author check would need a lookup)
     await storage.deleteGuideComment(id);
+    return res.json({ ok: true });
+  });
+
+  // ============================================================
+  // NOTIFICATIONS
+  // ============================================================
+
+  // GET /api/notifications — list my notifications
+  app.get("/api/notifications", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const limit = req.query.limit ? Number(req.query.limit) : 30;
+    const notifs = await (storage as any).listNotifications(currentUser.id, limit);
+    return res.json(notifs);
+  });
+
+  // GET /api/notifications/unread-count
+  app.get("/api/notifications/unread-count", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const count = await (storage as any).getUnreadCount(currentUser.id);
+    return res.json({ count });
+  });
+
+  // PATCH /api/notifications/:id/read
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await (storage as any).markNotificationRead(Number(req.params.id), currentUser.id);
+    return res.json({ ok: true });
+  });
+
+  // POST /api/notifications/mark-all-read
+  app.post("/api/notifications/mark-all-read", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await (storage as any).markAllNotificationsRead(currentUser.id);
+    return res.json({ ok: true });
+  });
+
+  // DELETE /api/notifications/:id
+  app.delete("/api/notifications/:id", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await (storage as any).deleteNotification(Number(req.params.id), currentUser.id);
     return res.json({ ok: true });
   });
 

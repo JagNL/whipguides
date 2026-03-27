@@ -136,6 +136,22 @@ export interface IStorage {
   likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }>;
   updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined>;
 
+  // Notifications
+  createNotification(n: {
+    userId: number;
+    type: string;
+    title: string;
+    body?: string;
+    linkType?: string;
+    linkId?: number;
+    actorId?: number;
+  }): Promise<void>;
+  listNotifications(userId: number, limit?: number): Promise<any[]>;
+  getUnreadCount(userId: number): Promise<number>;
+  markNotificationRead(id: number, userId: number): Promise<void>;
+  markAllNotificationsRead(userId: number): Promise<void>;
+  deleteNotification(id: number, userId: number): Promise<void>;
+
   // Global search
   searchAll(query: string): Promise<{
     listings: any[];
@@ -643,6 +659,75 @@ export class SupabaseStorage implements IStorage {
   }
 
   // ──────────────────────────────────────────────────────────
+  // NOTIFICATIONS
+  // ──────────────────────────────────────────────────────────
+
+  private mapNotification(row: any, actor?: User): any {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      type: row.type,
+      title: row.title,
+      body: row.body,
+      linkType: row.link_type,
+      linkId: row.link_id,
+      actorId: row.actor_id,
+      read: row.read,
+      createdAt: row.created_at,
+      actor,
+    };
+  }
+
+  async createNotification(n: { userId: number; type: string; title: string; body?: string; linkType?: string; linkId?: number; actorId?: number }): Promise<void> {
+    // Don’t notify users about their own actions
+    if (n.actorId && n.actorId === n.userId) return;
+    await supabaseAdmin.from("notifications").insert({
+      user_id: n.userId,
+      type: n.type,
+      title: n.title,
+      body: n.body || null,
+      link_type: n.linkType || null,
+      link_id: n.linkId || null,
+      actor_id: n.actorId || null,
+    }).select().single().catch(() => null);
+  }
+
+  async listNotifications(userId: number, limit = 30): Promise<any[]> {
+    const { data } = await supabaseAdmin
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    const rows = data || [];
+    return Promise.all(rows.map(async (row: any) => {
+      const actor = row.actor_id ? await this.getUser(row.actor_id) : undefined;
+      return this.mapNotification(row, actor);
+    }));
+  }
+
+  async getUnreadCount(userId: number): Promise<number> {
+    const { count } = await supabaseAdmin
+      .from("notifications")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("read", false);
+    return count ?? 0;
+  }
+
+  async markNotificationRead(id: number, userId: number): Promise<void> {
+    await supabaseAdmin.from("notifications").update({ read: true }).eq("id", id).eq("user_id", userId);
+  }
+
+  async markAllNotificationsRead(userId: number): Promise<void> {
+    await supabaseAdmin.from("notifications").update({ read: true }).eq("user_id", userId).eq("read", false);
+  }
+
+  async deleteNotification(id: number, userId: number): Promise<void> {
+    await supabaseAdmin.from("notifications").delete().eq("id", id).eq("user_id", userId);
+  }
+
+  // ──────────────────────────────────────────────────────────
   // SEARCH
   // ──────────────────────────────────────────────────────────
 
@@ -1045,6 +1130,37 @@ export class MemStorage implements IStorage {
     const updated = { ...g, ...data };
     this.groups.set(id, updated);
     return updated;
+  }
+
+  // ── Notification stubs for MemStorage ──
+  private _notifications: Map<number, any> = new Map();
+  private _notifIdCounter = 1;
+  async createNotification(n: any): Promise<void> {
+    if (n.actorId && n.actorId === n.userId) return;
+    const notif = { id: this._notifIdCounter++, ...n, read: false, createdAt: new Date().toISOString() };
+    this._notifications.set(notif.id, notif);
+  }
+  async listNotifications(userId: number, limit = 30): Promise<any[]> {
+    return Array.from(this._notifications.values())
+      .filter(n => n.userId === userId)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, limit);
+  }
+  async getUnreadCount(userId: number): Promise<number> {
+    return Array.from(this._notifications.values()).filter(n => n.userId === userId && !n.read).length;
+  }
+  async markNotificationRead(id: number, userId: number): Promise<void> {
+    const n = this._notifications.get(id);
+    if (n && n.userId === userId) this._notifications.set(id, { ...n, read: true });
+  }
+  async markAllNotificationsRead(userId: number): Promise<void> {
+    for (const [id, n] of this._notifications) {
+      if (n.userId === userId) this._notifications.set(id, { ...n, read: true });
+    }
+  }
+  async deleteNotification(id: number, userId: number): Promise<void> {
+    const n = this._notifications.get(id);
+    if (n?.userId === userId) this._notifications.delete(id);
   }
 
   // ── Search stubs for MemStorage ──
