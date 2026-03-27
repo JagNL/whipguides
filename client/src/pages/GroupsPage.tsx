@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Link, useLocation } from "wouter";
@@ -7,24 +7,75 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { Users, Lock, Plus, TrendingUp, Loader2 } from "lucide-react";
+import {
+  Users, Lock, Plus, TrendingUp, Loader2, Search,
+  X, Sparkles, ChevronRight, BookOpen,
+} from "lucide-react";
 
 const CATEGORIES = ["All", "Cars", "Trucks", "ATVs", "Jet Skis", "Motorcycles", "Off-Road", "Boats", "Firearms", "Antiques", "General"];
 const CREATE_CATEGORIES = CATEGORIES.filter(c => c !== "All");
 
-function GroupCard({ group }: { group: any }) {
+// ── Browsing history hook (persists category + search affinity in memory) ──
+const _browsedCategories: string[] = [];
+const _searchedTerms: string[] = [];
+
+function recordBrowse(category: string) {
+  if (category !== "All" && !_browsedCategories.includes(category)) {
+    _browsedCategories.unshift(category);
+    if (_browsedCategories.length > 5) _browsedCategories.pop();
+  }
+}
+
+function recordSearch(term: string) {
+  if (term && !_searchedTerms.includes(term)) {
+    _searchedTerms.unshift(term);
+    if (_searchedTerms.length > 10) _searchedTerms.pop();
+  }
+}
+
+// ── Group card ──────────────────────────────────────────────
+function GroupCard({ group, compact = false }: { group: any; compact?: boolean }) {
+  if (compact) {
+    return (
+      <Link href={`/groups/${group.id}`}>
+        <div
+          className="flex items-center gap-3 p-3 rounded-xl hover:bg-secondary transition-colors cursor-pointer group border border-border hover:border-primary/30"
+          data-testid={`card-group-compact-${group.id}`}
+        >
+          <div className="w-10 h-10 rounded-lg overflow-hidden bg-secondary shrink-0 border border-border">
+            {group.coverImage
+              ? <img src={group.coverImage} alt={group.name} className="w-full h-full object-cover" />
+              : <div className="w-full h-full flex items-center justify-center text-lg opacity-30">🏁</div>
+            }
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{group.name}</p>
+              {group.private && <Lock className="w-3 h-3 text-muted-foreground shrink-0" />}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-0.5"><Users className="w-3 h-3" />{(group.memberCount || 0).toLocaleString()}</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">{group.category}</Badge>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+        </div>
+      </Link>
+    );
+  }
+
   return (
     <Link href={`/groups/${group.id}`}>
       <div
         className="bg-card rounded-xl border border-border overflow-hidden hover-elevate cursor-pointer group transition-colors hover:border-primary/40"
         data-testid={`card-group-${group.id}`}
       >
-        {/* Cover */}
         <div className="relative h-36 bg-secondary overflow-hidden">
           {group.coverImage ? (
             <img
@@ -47,20 +98,16 @@ function GroupCard({ group }: { group: any }) {
             <Badge className="bg-primary/90 text-primary-foreground text-xs">{group.category}</Badge>
           </div>
         </div>
-
-        {/* Info */}
         <div className="p-4">
           <h3 className="font-bold text-base mb-1 line-clamp-1">{group.name}</h3>
           <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{group.description}</p>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
-                <Users className="w-3.5 h-3.5" />
-                {(group.memberCount || 0).toLocaleString()} members
+                <Users className="w-3.5 h-3.5" />{(group.memberCount || 0).toLocaleString()} members
               </span>
               <span className="flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5" />
-                {(group.postCount || 0).toLocaleString()} posts
+                <TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts
               </span>
             </div>
             <Button
@@ -78,9 +125,58 @@ function GroupCard({ group }: { group: any }) {
   );
 }
 
+// ── Search results dropdown ─────────────────────────────────
+function SearchDropdown({ results, onClose }: { results: any[]; onClose: () => void }) {
+  if (!results.length) return (
+    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl z-50 p-4 text-center">
+      <p className="text-sm text-muted-foreground">No groups found</p>
+    </div>
+  );
+
+  return (
+    <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden max-h-80 overflow-y-auto">
+      {results.map((group: any) => (
+        <Link key={group.id} href={`/groups/${group.id}`}>
+          <div
+            className="flex items-center gap-3 px-4 py-3 hover:bg-secondary transition-colors cursor-pointer border-b border-border last:border-0"
+            onClick={onClose}
+            data-testid={`search-result-group-${group.id}`}
+          >
+            <div className="w-9 h-9 rounded-lg overflow-hidden bg-secondary shrink-0">
+              {group.coverImage
+                ? <img src={group.coverImage} alt={group.name} className="w-full h-full object-cover" />
+                : <div className="w-full h-full flex items-center justify-center text-sm opacity-30">🏁</div>
+              }
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-semibold truncate">{group.name}</p>
+                {group.private && <Lock className="w-3 h-3 text-muted-foreground shrink-0" />}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>{(group.memberCount || 0).toLocaleString()} members</span>
+                <span>·</span>
+                <span>{group.category}</span>
+              </div>
+            </div>
+            {group.private
+              ? <Badge variant="outline" className="text-[10px] gap-1 shrink-0"><Lock className="w-2.5 h-2.5" />Private</Badge>
+              : <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+            }
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+// ── Main GroupsPage ──────────────────────────────────────────
 export default function GroupsPage() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [createOpen, setCreateOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
   const { user, isAuthenticated } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -91,6 +187,23 @@ export default function GroupsPage() {
   const [category, setCategory] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
 
+  // Track browsed categories for suggestions
+  useEffect(() => { recordBrowse(activeCategory); }, [activeCategory]);
+
+  // Close search dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // ── Data fetching ──────────────────────────────────────────
+
+  // All/filtered groups
   const { data: groups = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/groups", activeCategory],
     queryFn: () => {
@@ -101,22 +214,50 @@ export default function GroupsPage() {
     },
   });
 
+  // Live search results
+  const { data: searchResults = [] } = useQuery<any[]>({
+    queryKey: ["/api/search/groups", searchQuery],
+    queryFn: () =>
+      apiRequest("GET", `/api/search?q=${encodeURIComponent(searchQuery)}`).then(r => r.json()).then(d => d.groups || []),
+    enabled: searchQuery.trim().length >= 2,
+  });
+
+  // My groups (if logged in)
+  const { data: myGroups = [] } = useQuery<any[]>({
+    queryKey: ["/api/groups/mine"],
+    queryFn: () => apiRequest("GET", "/api/groups/mine").then(r => r.json()),
+    enabled: isAuthenticated,
+  });
+
+  // Suggested groups based on browsing history
+  const suggestedCategories = _browsedCategories.slice(0, 3);
+  const myGroupIds = myGroups.map((g: any) => g.id);
+  const { data: suggestedGroups = [] } = useQuery<any[]>({
+    queryKey: ["/api/groups/suggested", suggestedCategories.join(","), myGroupIds.join(",")],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (suggestedCategories.length) params.set("categories", suggestedCategories.join(","));
+      if (myGroupIds.length) params.set("excludeIds", myGroupIds.join(","));
+      return apiRequest("GET", `/api/groups/suggested?${params.toString()}`).then(r => r.json());
+    },
+    // Always fetch — will return popular groups as fallback
+  });
+
+  // ── Mutations ──────────────────────────────────────────────
   const { mutate: createGroup, isPending: creating } = useMutation({
     mutationFn: () =>
       apiRequest("POST", "/api/groups", {
-        name: name.trim(),
-        description: description.trim(),
-        category,
-        private: isPrivate,
+        name: name.trim(), description: description.trim(), category, private: isPrivate,
       }).then(r => r.json()),
     onSuccess: (group) => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups/mine"] });
       setCreateOpen(false);
       setName(""); setDescription(""); setCategory(""); setIsPrivate(false);
       toast({ title: "Group created!", description: `${group.name} is now live.` });
       navigate(`/groups/${group.id}`);
     },
-    onError: () => toast({ title: "Error", description: "Could not create group. Try again.", variant: "destructive" }),
+    onError: () => toast({ title: "Error", description: "Could not create group.", variant: "destructive" }),
   });
 
   const handleCreate = () => {
@@ -126,13 +267,21 @@ export default function GroupsPage() {
     createGroup();
   };
 
-  const openCreate = () => {
-    if (!isAuthenticated) {
-      toast({ title: "Sign in required", description: "Sign in to create a group." });
-      return;
-    }
-    setCreateOpen(true);
+  const handleSearchChange = (val: string) => {
+    setSearchQuery(val);
+    setSearchOpen(val.trim().length >= 2);
+    if (val.trim().length >= 2) recordSearch(val.trim());
   };
+
+  const handleCategoryClick = (cat: string) => {
+    setActiveCategory(cat);
+    setSearchQuery("");
+    setSearchOpen(false);
+    recordBrowse(cat);
+  };
+
+  // Groups not already joined, filtered from suggestions
+  const suggestedNotJoined = suggestedGroups.filter((g: any) => !myGroupIds.includes(g.id)).slice(0, 6);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -144,63 +293,196 @@ export default function GroupsPage() {
             Connect with riders, racers, and enthusiasts in your niche.
           </p>
         </div>
-        <Button className="gap-2 shrink-0" onClick={openCreate} data-testid="button-create-group">
+        <Button className="gap-2 shrink-0" onClick={() => {
+          if (!isAuthenticated) { toast({ title: "Sign in required" }); return; }
+          setCreateOpen(true);
+        }} data-testid="button-create-group">
           <Plus className="w-4 h-4" /> Create Group
         </Button>
       </div>
 
-      {/* Category filters */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-6">
-        {CATEGORIES.map(cat => (
+      {/* Search bar */}
+      <div ref={searchRef} className="relative mb-5">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          data-testid="input-group-search"
+          placeholder="Search groups by name, category, or keyword..."
+          className="pl-9 h-11 text-base bg-card"
+          value={searchQuery}
+          onChange={e => handleSearchChange(e.target.value)}
+          onFocus={() => searchQuery.trim().length >= 2 && setSearchOpen(true)}
+        />
+        {searchQuery && (
           <button
-            key={cat}
-            data-testid={`filter-group-category-${cat.toLowerCase()}`}
-            onClick={() => setActiveCategory(cat)}
-            className={`category-pill shrink-0 border ${
-              activeCategory === cat
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-            }`}
+            onClick={() => { setSearchQuery(""); setSearchOpen(false); }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           >
-            {cat}
+            <X className="w-4 h-4" />
           </button>
-        ))}
+        )}
+        {searchOpen && (
+          <SearchDropdown
+            results={searchResults}
+            onClose={() => setSearchOpen(false)}
+          />
+        )}
       </div>
 
-      {/* Groups grid */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="bg-card rounded-xl border border-border overflow-hidden">
-              <Skeleton className="h-36 w-full" />
-              <div className="p-4 space-y-2">
-                <Skeleton className="h-5 w-3/4" />
-                <Skeleton className="h-3 w-full" />
-                <Skeleton className="h-3 w-1/2" />
+      {/* Two-column layout when logged in */}
+      <div className={`flex gap-6 items-start ${isAuthenticated ? "" : ""}`}>
+        {/* Main content */}
+        <div className="flex-1 min-w-0">
+          {/* Category filters */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-5 scrollbar-hide">
+            {CATEGORIES.map(cat => (
+              <button
+                key={cat}
+                data-testid={`filter-group-category-${cat.toLowerCase()}`}
+                onClick={() => handleCategoryClick(cat)}
+                className={`category-pill shrink-0 border ${
+                  activeCategory === cat
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
+          {/* Groups grid */}
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="bg-card rounded-xl border border-border overflow-hidden">
+                  <Skeleton className="h-36 w-full" />
+                  <div className="p-4 space-y-2">
+                    <Skeleton className="h-5 w-3/4" />
+                    <Skeleton className="h-3 w-full" />
+                    <Skeleton className="h-3 w-1/2" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : groups.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
+              <p className="font-semibold">No groups in this category yet</p>
+              <p className="text-sm mt-1">Be the first to create one.</p>
+              <Button className="mt-4 gap-2" onClick={() => setCreateOpen(true)}>
+                <Plus className="w-4 h-4" /> Create Group
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {groups.map(group => <GroupCard key={group.id} group={group} />)}
+            </div>
+          )}
+        </div>
+
+        {/* Sidebar — Your Groups + Suggested */}
+        <div className="hidden lg:flex flex-col gap-4 w-72 shrink-0">
+
+          {/* Your Groups */}
+          {isAuthenticated && myGroups.length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-4">
+              <h3 className="font-semibold text-sm flex items-center gap-2 mb-3">
+                <Users className="w-4 h-4 text-primary" />
+                Your Groups
+                <span className="ml-auto text-xs text-muted-foreground">{myGroups.length}</span>
+              </h3>
+              <div className="space-y-2">
+                {myGroups.slice(0, 5).map((group: any) => (
+                  <Link key={group.id} href={`/groups/${group.id}`}>
+                    <div className="flex items-center gap-2.5 py-1.5 hover:opacity-80 transition-opacity cursor-pointer">
+                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-secondary shrink-0">
+                        {group.coverImage
+                          ? <img src={group.coverImage} alt={group.name} className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center text-sm opacity-30">🏁</div>
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold truncate">{group.name}</p>
+                        <p className="text-[10px] text-muted-foreground">{(group.memberCount || 0).toLocaleString()} members</p>
+                      </div>
+                      {group.private && <Lock className="w-3 h-3 text-muted-foreground shrink-0" />}
+                    </div>
+                  </Link>
+                ))}
+                {myGroups.length > 5 && (
+                  <p className="text-xs text-primary text-center pt-1">+{myGroups.length - 5} more</p>
+                )}
               </div>
             </div>
-          ))}
-        </div>
-      ) : groups.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <Users className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p className="font-semibold">No groups in this category yet</p>
-          <p className="text-sm mt-1">Be the first to create one.</p>
-          <Button className="mt-4 gap-2" onClick={openCreate}><Plus className="w-4 h-4" /> Create Group</Button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {groups.map(group => <GroupCard key={group.id} group={group} />)}
-        </div>
-      )}
+          )}
 
-      {/* ── Create Group Dialog ────────────────────────────── */}
+          {/* Suggested Groups */}
+          {suggestedNotJoined.length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-4">
+              <h3 className="font-semibold text-sm flex items-center gap-2 mb-1">
+                <Sparkles className="w-4 h-4 text-primary" />
+                Suggested for You
+              </h3>
+              <p className="text-[10px] text-muted-foreground mb-3">
+                {suggestedCategories.length > 0
+                  ? `Based on your interest in ${suggestedCategories.slice(0, 2).join(" & ")}`
+                  : "Popular groups you might like"
+                }
+              </p>
+              <div className="space-y-2">
+                {suggestedNotJoined.map((group: any) => (
+                  <Link key={group.id} href={`/groups/${group.id}`}>
+                    <div className="flex items-center gap-2.5 py-2 border-b border-border last:border-0 hover:opacity-80 transition-opacity cursor-pointer group">
+                      <div className="w-9 h-9 rounded-lg overflow-hidden bg-secondary shrink-0">
+                        {group.coverImage
+                          ? <img src={group.coverImage} alt={group.name} className="w-full h-full object-cover" />
+                          : <div className="w-full h-full flex items-center justify-center text-sm opacity-30">🏁</div>
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{group.name}</p>
+                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                          <span>{(group.memberCount || 0).toLocaleString()} members</span>
+                          <span>·</span>
+                          <Badge variant="outline" className="text-[9px] px-1 py-0 h-3.5">{group.category}</Badge>
+                        </div>
+                      </div>
+                      {group.private
+                        ? <Lock className="w-3 h-3 text-muted-foreground shrink-0" />
+                        : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+                      }
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Discover more hint */}
+          {suggestedCategories.length > 0 && (
+            <div className="bg-primary/5 border border-primary/20 rounded-xl p-3 text-center">
+              <BookOpen className="w-5 h-5 text-primary mx-auto mb-1.5" />
+              <p className="text-xs font-medium mb-0.5">Browse by category</p>
+              <p className="text-[10px] text-muted-foreground mb-2">
+                You've been exploring {suggestedCategories[0]}
+              </p>
+              <button
+                onClick={() => handleCategoryClick(suggestedCategories[0])}
+                className="text-xs text-primary font-semibold hover:underline"
+              >
+                See all {suggestedCategories[0]} groups →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Create Group Dialog ── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Create a Group</DialogTitle>
           </DialogHeader>
-
           <div className="space-y-4 py-2">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Group Name *</label>
@@ -212,7 +494,6 @@ export default function GroupsPage() {
                 maxLength={60}
               />
             </div>
-
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Description *</label>
               <Textarea
@@ -223,7 +504,6 @@ export default function GroupsPage() {
                 rows={3}
               />
             </div>
-
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Category *</label>
               <Select onValueChange={setCategory} value={category}>
@@ -235,24 +515,16 @@ export default function GroupsPage() {
                 </SelectContent>
               </Select>
             </div>
-
             <div className="flex items-center justify-between rounded-lg border border-border p-3">
               <div>
                 <p className="text-sm font-medium">Private Group</p>
                 <p className="text-xs text-muted-foreground">Members must be approved to join</p>
               </div>
-              <Switch
-                checked={isPrivate}
-                onCheckedChange={setIsPrivate}
-                data-testid="switch-group-private"
-              />
+              <Switch checked={isPrivate} onCheckedChange={setIsPrivate} data-testid="switch-group-private" />
             </div>
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={creating}>Cancel</Button>
             <Button onClick={handleCreate} disabled={creating} data-testid="button-submit-create-group">
               {creating ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Creating...</> : "Create Group"}
             </Button>

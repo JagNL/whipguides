@@ -136,6 +136,9 @@ export interface IStorage {
   likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }>;
   updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined>;
 
+  // User's joined groups
+  listGroupsForUser(userId: number): Promise<Group[]>;
+
   // Private group join requests
   requestJoinGroup(groupId: number, userId: number, message?: string): Promise<void>;
   cancelJoinRequest(groupId: number, userId: number): Promise<void>;
@@ -666,6 +669,21 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
+  async listGroupsForUser(userId: number): Promise<Group[]> {
+    const { data: memberships } = await supabaseAdmin
+      .from("group_members")
+      .select("group_id")
+      .eq("user_id", userId);
+    if (!memberships?.length) return [];
+    const groupIds = memberships.map((m: any) => m.group_id);
+    const { data } = await supabaseAdmin
+      .from("groups")
+      .select("*")
+      .in("id", groupIds)
+      .order("member_count", { ascending: false });
+    return (data || []).map(this.mapGroup.bind(this));
+  }
+
   // ──────────────────────────────────────────────────────────
   // PRIVATE GROUP JOIN REQUESTS
   // ──────────────────────────────────────────────────────────
@@ -1183,6 +1201,13 @@ export class MemStorage implements IStorage {
     const updated = { ...g, ...data };
     this.groups.set(id, updated);
     return updated;
+  }
+
+  async listGroupsForUser(userId: number): Promise<Group[]> {
+    const memberGroupIds = Array.from(this.groupMembers.values())
+      .filter(m => m.userId === userId)
+      .map(m => m.groupId);
+    return Array.from(this.groups.values()).filter(g => memberGroupIds.includes(g.id));
   }
 
   // ── Private group join request stubs for MemStorage ──

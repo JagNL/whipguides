@@ -168,6 +168,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GET /api/groups/mine — groups the current user belongs to
+  app.get("/api/groups/mine", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groups = await (storage as any).listGroupsForUser(currentUser.id);
+    return res.json(groups);
+  });
+
+  // GET /api/groups/suggested — groups suggested based on category affinity
+  // Uses the ?categories= query param (comma-separated) from the client
+  app.get("/api/groups/suggested", async (req, res) => {
+    const { categories, excludeIds } = req.query;
+    const catList = categories ? (categories as string).split(",").filter(Boolean) : [];
+    const excluded = excludeIds ? (excludeIds as string).split(",").map(Number) : [];
+    let groups: any[] = [];
+    if (catList.length > 0) {
+      // Get groups from matching categories, interleaved
+      const perCat = await Promise.all(
+        catList.slice(0, 3).map(cat => storage.listGroups(cat))
+      );
+      const seen = new Set<number>();
+      for (const catGroups of perCat) {
+        for (const g of catGroups) {
+          if (!seen.has(g.id) && !excluded.includes(g.id)) {
+            seen.add(g.id);
+            groups.push(g);
+          }
+        }
+      }
+    }
+    // Pad with most popular groups if not enough
+    if (groups.length < 6) {
+      const popular = await storage.listGroups();
+      for (const g of popular) {
+        if (groups.length >= 6) break;
+        if (!groups.find((x: any) => x.id === g.id) && !excluded.includes(g.id)) {
+          groups.push(g);
+        }
+      }
+    }
+    return res.json(groups.slice(0, 6));
+  });
+
   // Join / leave group
   // Join (public groups) OR request to join (private groups)
   app.post("/api/groups/:id/join", requireAuth, async (req, res) => {
