@@ -317,6 +317,14 @@ function GoogleMap({
     });
     markerRef.current = marker;
 
+    // Move circle live while dragging
+    marker.addListener("drag", () => {
+      const pos = marker.getPosition();
+      if (circleRef.current) {
+        circleRef.current.setCenter(pos);
+      }
+    });
+
     marker.addListener("dragend", () => {
       const pos = marker.getPosition();
       onDragEnd(pos.lat(), pos.lng());
@@ -455,6 +463,14 @@ function LeafletMap({
     });
     const marker = L.marker([lat, lng], { icon, draggable: true }).addTo(map);
     markerRef.current = marker;
+
+    // Move circle live while dragging
+    marker.on("drag", () => {
+      const p = marker.getLatLng();
+      if (circleRef.current) {
+        circleRef.current.setLatLng([p.lat, p.lng]);
+      }
+    });
 
     marker.on("dragend", () => {
       const p = marker.getLatLng();
