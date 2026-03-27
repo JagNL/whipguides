@@ -10,7 +10,7 @@ import {
 import {
   Search, Plus, Sun, Moon, Menu, X,
   Gauge, Users, LogOut, User, MessageSquare,
-  ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone,
+  ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone, Rss,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/hooks/use-auth";
@@ -37,6 +37,7 @@ function WhipGuidesLogo({ size = 32 }: { size?: number }) {
 }
 
 const navLinks = [
+  { href: "/feed", label: "Feed", icon: Rss },
   { href: "/", label: "Marketplace", icon: Gauge },
   { href: "/groups", label: "Groups", icon: Users },
   { href: "/guides", label: "Guides", icon: BookOpen },

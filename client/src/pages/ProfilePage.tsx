@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,13 +10,68 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { StarRating } from "@/components/StarRating";
 import ListingCard from "@/components/ListingCard";
 import { AvatarUploader } from "@/components/ImageUploader";
-import { ShieldCheck, MapPin, Calendar, MessageSquare, Star, Clock, Pencil, Loader2 } from "lucide-react";
+import { ShieldCheck, MapPin, Calendar, MessageSquare, Star, Clock, Pencil, Loader2, UserPlus, UserCheck } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import ReportButton from "@/components/ReportButton";
 
 type Tab = "listings" | "reviews";
+
+// ── Follow Button ────────────────────────────────────────────
+function FollowButton({ targetId }: { targetId: number }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data: status } = useQuery<{ following: boolean }>({
+    queryKey: ["/api/feed/follow-status", targetId],
+    queryFn: () => apiRequest("GET", `/api/feed/follow-status/${targetId}`).then(r => r.json()),
+    enabled: !!user,
+  });
+
+  const followMut = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/feed/follow/${targetId}`).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/feed/follow-status", targetId] });
+      qc.invalidateQueries({ queryKey: ["/api/feed"] });
+      toast({ title: "Following" });
+    },
+  });
+
+  const unfollowMut = useMutation({
+    mutationFn: () =>
+      apiRequest("DELETE", `/api/feed/follow/${targetId}`).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/feed/follow-status", targetId] });
+      qc.invalidateQueries({ queryKey: ["/api/feed"] });
+      toast({ title: "Unfollowed" });
+    },
+  });
+
+  if (!user) return null;
+
+  const following = status?.following ?? false;
+
+  return (
+    <Button
+      variant={following ? "outline" : "default"}
+      size="sm"
+      className="gap-1.5 shrink-0"
+      disabled={followMut.isPending || unfollowMut.isPending}
+      onClick={() => following ? unfollowMut.mutate() : followMut.mutate()}
+      data-testid={`button-follow-${targetId}`}
+    >
+      {following ? (
+        <><UserCheck className="w-4 h-4" /> Following</>
+      ) : (
+        <><UserPlus className="w-4 h-4" /> Follow</>
+      )}
+    </Button>
+  );
+}
 
 export default function ProfilePage({ id }: { id: number }) {
   const [activeTab, setActiveTab] = useState<Tab>("listings");
@@ -157,17 +212,21 @@ export default function ProfilePage({ id }: { id: number }) {
                     <Pencil className="w-4 h-4" /> Edit Profile
                   </Button>
                 ) : (
-                  <Button
-                    className="gap-2 shrink-0"
-                    data-testid="button-message-user"
-                    onClick={() => {
-                      if (!currentUser) { toast({ title: "Sign in required", description: "Please sign in to send messages." }); return; }
-                      messageUser();
-                    }}
-                    disabled={messagingUser}
-                  >
-                    <MessageSquare className="w-4 h-4" /> {messagingUser ? "Opening..." : "Message"}
-                  </Button>
+                  <div className="flex gap-2">
+                    <FollowButton targetId={id} />
+                    <Button
+                      className="gap-2 shrink-0"
+                      data-testid="button-message-user"
+                      onClick={() => {
+                        if (!currentUser) { toast({ title: "Sign in required", description: "Please sign in to send messages." }); return; }
+                        messageUser();
+                      }}
+                      disabled={messagingUser}
+                    >
+                      <MessageSquare className="w-4 h-4" /> {messagingUser ? "Opening..." : "Message"}
+                    </Button>
+                    <ReportButton targetType="user" targetId={id} iconOnly className="p-2 h-9 w-9 border border-border rounded-lg flex items-center justify-center hover:bg-muted/60" />
+                  </div>
                 )}
               </div>
             </div>

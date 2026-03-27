@@ -966,6 +966,192 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============================================================
+  // COMMUNITY FEED
+  // ============================================================
+
+  // GET /api/feed?cursor=<timestamp>&limit=20
+  // Returns posts from groups the user is a member of + followed users,
+  // ordered by created_at desc, with cursor-based infinite scroll.
+  app.get("/api/feed", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const cursor = req.query.cursor as string | undefined;
+    const limit = Math.min(Number(req.query.limit) || 20, 40);
+
+    try {
+      // 1. Get groups the user is in
+      const myGroups = await (storage as any).listGroupsForUser(currentUser.id) as any[];
+      const groupIds: number[] = (myGroups || []).map((g: any) => g.id);
+
+      // 2. Get users the current user follows
+      const { data: follows } = await supabaseAdminForRoutes
+        .from("user_follows")
+        .select("following_id")
+        .eq("follower_id", currentUser.id);
+      const followedIds: number[] = (follows || []).map((f: any) => f.following_id);
+
+      // 3. Query posts from those groups + by followed users, paginated
+      if (groupIds.length === 0 && followedIds.length === 0) {
+        // No groups joined yet — show recent posts from public groups as discovery
+        const { data: discoverPosts } = await supabaseAdminForRoutes
+          .from("posts")
+          .select(`
+            id, content, images, guide_id, created_at, likes,
+            reaction_counts, share_count, post_type, is_pinned,
+            author:author_id(id, username, display_name, avatar, verified, site_role),
+            group:group_id(id, name, avatar, category, is_private)
+          `)
+          .eq("groups.is_private", false)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        return res.json({ posts: discoverPosts || [], nextCursor: null, isDiscovery: true });
+      }
+
+      let query = supabaseAdminForRoutes
+        .from("posts")
+        .select(`
+          id, content, images, guide_id, created_at, likes,
+          reaction_counts, share_count, post_type, is_pinned,
+          author:author_id(id, username, display_name, avatar, verified, site_role),
+          group:group_id(id, name, avatar, category, is_private)
+        `)
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      // Build OR filter: posts from my groups OR posts by followed users
+      const conditions: string[] = [];
+      if (groupIds.length > 0) conditions.push(`group_id.in.(${groupIds.join(",")})`);
+      if (followedIds.length > 0) conditions.push(`author_id.in.(${followedIds.join(",")})`);
+      if (conditions.length > 0) query = query.or(conditions.join(","));
+
+      if (cursor) query = query.lt("created_at", cursor);
+
+      const { data: posts, error } = await query;
+      if (error) return res.status(500).json({ error: error.message });
+
+      const nextCursor = posts && posts.length === limit
+        ? posts[posts.length - 1].created_at
+        : null;
+
+      return res.json({ posts: posts || [], nextCursor, isDiscovery: false });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/feed/follow/:userId — follow a user
+  app.post("/api/feed/follow/:userId", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const targetId = Number(req.params.userId);
+    if (targetId === currentUser.id) return res.status(400).json({ error: "Cannot follow yourself" });
+
+    const { error } = await supabaseAdminForRoutes
+      .from("user_follows")
+      .insert({ follower_id: currentUser.id, following_id: targetId });
+
+    if (error && error.code !== "23505") return res.status(400).json({ error: error.message });
+
+    // Update counts
+    await Promise.all([
+      supabaseAdminForRoutes.from("users").update({ following_count: supabaseAdminForRoutes.rpc }).eq("id", currentUser.id),
+    ]).catch(() => {});
+
+    res.json({ success: true, following: true });
+  });
+
+  // DELETE /api/feed/follow/:userId — unfollow
+  app.delete("/api/feed/follow/:userId", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await supabaseAdminForRoutes
+      .from("user_follows")
+      .delete()
+      .eq("follower_id", currentUser.id)
+      .eq("following_id", Number(req.params.userId));
+    res.json({ success: true, following: false });
+  });
+
+  // GET /api/feed/follow-status/:userId
+  app.get("/api/feed/follow-status/:userId", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const { data } = await supabaseAdminForRoutes
+      .from("user_follows")
+      .select("id")
+      .eq("follower_id", currentUser.id)
+      .eq("following_id", Number(req.params.userId))
+      .single();
+    res.json({ following: !!data });
+  });
+
+  // POST /api/posts/:id/react — add/change reaction
+  app.post("/api/posts/:id/react", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const postId = Number(req.params.id);
+    const { reaction = "like" } = req.body;
+    const validReactions = ["like", "love", "haha", "wow", "helpful", "fire"];
+    if (!validReactions.includes(reaction)) return res.status(400).json({ error: "Invalid reaction" });
+
+    // Upsert reaction
+    const { error } = await supabaseAdminForRoutes
+      .from("post_reactions")
+      .upsert({ post_id: postId, user_id: currentUser.id, reaction },
+        { onConflict: "post_id,user_id" });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    // Recount reactions for this post
+    const { data: counts } = await supabaseAdminForRoutes
+      .from("post_reactions")
+      .select("reaction")
+      .eq("post_id", postId);
+
+    const tally: Record<string, number> = {};
+    for (const r of (counts || [])) {
+      tally[r.reaction] = (tally[r.reaction] || 0) + 1;
+    }
+
+    await supabaseAdminForRoutes
+      .from("posts")
+      .update({ reaction_counts: tally, likes: Object.values(tally).reduce((a, b) => a + b, 0) })
+      .eq("id", postId);
+
+    res.json({ success: true, reactions: tally });
+  });
+
+  // DELETE /api/posts/:id/react — remove reaction
+  app.delete("/api/posts/:id/react", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const postId = Number(req.params.id);
+
+    await supabaseAdminForRoutes
+      .from("post_reactions")
+      .delete()
+      .eq("post_id", postId)
+      .eq("user_id", currentUser.id);
+
+    const { data: counts } = await supabaseAdminForRoutes
+      .from("post_reactions").select("reaction").eq("post_id", postId);
+    const tally: Record<string, number> = {};
+    for (const r of (counts || [])) tally[r.reaction] = (tally[r.reaction] || 0) + 1;
+
+    await supabaseAdminForRoutes.from("posts")
+      .update({ reaction_counts: tally, likes: Object.values(tally).reduce((a, b) => a + b, 0) })
+      .eq("id", postId);
+
+    res.json({ success: true, reactions: tally });
+  });
+
+  // GET /api/posts/:id/my-reaction
+  app.get("/api/posts/:id/my-reaction", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const { data } = await supabaseAdminForRoutes
+      .from("post_reactions")
+      .select("reaction")
+      .eq("post_id", Number(req.params.id))
+      .eq("user_id", currentUser.id)
+      .single();
+    res.json({ reaction: data?.reaction || null });
+  });
+
+  // ============================================================
   // CONFIG (public, safe values only)
   // ============================================================
   app.get("/api/config", (_req, res) => {

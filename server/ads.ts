@@ -46,24 +46,31 @@ export async function checkKeywords(text: string, contentType: string): Promise<
 // PUBLIC: Ad serving (no auth required)
 // ─────────────────────────────────────────────────────────────
 
-// GET /api/ads/serve?context=marketplace&category=Cars&limit=3
+// GET /api/ads/serve?context=feed&interests=Cars,3DPrinting&groupId=5&limit=2
+// context: "feed" | "marketplace" | "group" | "guides"
+// interests: comma-separated interest tags (any topic, not just vehicles)
 adsRouter.get("/serve", async (req, res) => {
-  const { context = "marketplace", category, groupId, limit = "2" } = req.query;
+  const { context = "feed", category, interests, groupId, limit = "2" } = req.query;
   const lim = Math.min(Number(limit), 5);
 
+  // Accept both legacy "category" and new "interests" param
+  const interestList: string[] = [
+    ...(category ? [category as string] : []),
+    ...(interests ? (interests as string).split(",").map(s => s.trim()).filter(Boolean) : []),
+  ];
+
   // Build query for active ads matching targeting
-  let query = supabaseAdmin
+  const { data: ads, error } = await supabaseAdmin
     .from("ads")
     .select(`
       id, name, headline, body, cta_text, cta_url,
       image_id, image_url, format, impressions, clicks,
-      campaign:campaign_id(id, target_categories, target_vehicle_makes, target_locations, target_group_ids, budget_amount, spent_amount, budget_type, bid_amount, bid_type, start_date, end_date),
+      campaign:campaign_id(id, target_categories, target_interests, target_locations, target_group_ids, budget_amount, spent_amount, budget_type, bid_amount, bid_type, start_date, end_date),
       account:account_id(id, company_name)
     `)
     .eq("status", "active")
-    .eq("format", "feed_card");
+    .in("format", ["feed_card", "feed_post"]);
 
-  const { data: ads, error } = await query;
   if (error || !ads?.length) return res.json([]);
 
   // Filter by targeting criteria + budget not exhausted
@@ -76,10 +83,16 @@ adsRouter.get("/serve", async (req, res) => {
     if (c.end_date && new Date(c.end_date) < now) return false;
     // Budget
     if (c.budget_type === "total" && c.spent_amount >= c.budget_amount) return false;
-    // Category targeting (empty = all categories)
-    if (category && c.target_categories?.length && !c.target_categories.includes(category)) return false;
-    // Group targeting
-    if (groupId && c.target_group_ids?.length && !c.target_group_ids.includes(Number(groupId))) return false;
+    // Interest/category targeting (empty array = show to everyone)
+    const campaignTargets = [...(c.target_categories || []), ...(c.target_interests || [])];
+    if (interestList.length > 0 && campaignTargets.length > 0) {
+      const overlap = interestList.some(i => campaignTargets.some(
+        t => t.toLowerCase() === i.toLowerCase()
+      ));
+      if (!overlap) return false;
+    }
+    // Group targeting (empty = all groups)
+    if (groupId && c.target_group_ids?.length && !c.target_group_ids.map(Number).includes(Number(groupId))) return false;
     return true;
   });
 

@@ -20,6 +20,7 @@ import AuthCallbackPage from "@/pages/AuthCallbackPage";
 import SearchPage from "@/pages/SearchPage";
 import SavedListsPage from "@/pages/SavedListsPage";
 import AdvertisePage from "@/pages/AdvertisePage";
+import FeedPage from "@/pages/FeedPage";
 import NotFound from "@/pages/not-found";
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="/search" component={() => <Layout><SearchPage /></Layout>} />
             <Route path="/saved" component={() => <Layout><SavedListsPage /></Layout>} />
             <Route path="/advertise" component={() => <Layout><AdvertisePage /></Layout>} />
+            <Route path="/feed" component={() => <Layout><FeedPage /></Layout>} />
             <Route component={NotFound} />
           </Switch>
         </Router>

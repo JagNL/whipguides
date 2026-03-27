@@ -36,14 +36,22 @@ const STATUS_STYLES: Record<string, string> = {
   completed: "bg-muted text-muted-foreground border-border",
 };
 
-const VEHICLE_CATEGORIES = [
-  "Cars", "Trucks", "ATVs", "Motorcycles", "Jet Skis",
-  "Boats", "Snowmobiles", "UTVs", "Dirt Bikes", "Parts & Accessories",
-];
-
-const MAKES = [
-  "Ford", "Chevrolet", "Toyota", "Honda", "Dodge", "Ram",
-  "GMC", "Jeep", "Subaru", "BMW", "Mercedes-Benz", "Audi",
+// Universal interest categories — not limited to vehicles
+const INTEREST_CATEGORIES = [
+  // Automotive & Motorsports
+  "Cars", "Trucks", "Motorcycles", "ATVs", "Jet Skis", "Boats",
+  "Snowmobiles", "UTVs", "Dirt Bikes", "Classic Cars", "Racing", "Overlanding",
+  "Parts & Accessories", "Car Audio", "Detailing",
+  // Maker / Tech
+  "3D Printing", "Electronics", "DIY & Maker", "CNC",
+  // Outdoor & Recreation
+  "Hunting", "Fishing", "Camping", "Off-Road", "Hiking", "Shooting Sports",
+  // Collectibles & Antiques
+  "Antiques", "Firearms", "Coins & Collectibles", "Vintage Electronics",
+  // Business & Services
+  "Auto Repair", "Dealerships", "Towing & Transport", "Car Rentals",
+  // Lifestyle
+  "Trucks & Lifted", "Lowriders & Custom", "Restoration",
 ];
 
 // ── Account Setup Step ────────────────────────────────────────
@@ -141,7 +149,15 @@ function CampaignWizard({ open, onClose }: { open: boolean; onClose: () => void 
 
   const createCampaign = useMutation({
     mutationFn: () => apiRequest("POST", "/api/ads/campaigns", {
-      ...form,
+      name: form.name,
+      objective: form.objective,
+      budgetType: form.budgetType,
+      budgetAmount: form.budgetAmount,
+      bidType: form.bidType,
+      bidAmount: form.bidAmount,
+      startDate: form.startDate || null,
+      endDate: form.endDate || null,
+      targetCategories: form.targetCategories,
       targetLocations: form.targetLocations ? form.targetLocations.split(",").map(s => s.trim()).filter(Boolean) : [],
     }).then(r => r.json()),
     onSuccess: () => {
@@ -270,9 +286,10 @@ function CampaignWizard({ open, onClose }: { open: boolean; onClose: () => void 
         {step === 2 && (
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Target vehicle categories <span className="text-muted-foreground text-xs">(empty = all)</span></Label>
-              <div className="flex flex-wrap gap-1.5">
-                {VEHICLE_CATEGORIES.map(cat => (
+              <Label>Target interests / communities <span className="text-muted-foreground text-xs">(empty = reach everyone)</span></Label>
+              <p className="text-xs text-muted-foreground">Select any topics your audience cares about — not just vehicles.</p>
+              <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto pr-1">
+                {INTEREST_CATEGORIES.map(cat => (
                   <button
                     key={cat}
                     onClick={() => toggleCategory(cat)}
@@ -282,21 +299,29 @@ function CampaignWizard({ open, onClose }: { open: boolean; onClose: () => void 
                   </button>
                 ))}
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Target vehicle makes <span className="text-muted-foreground text-xs">(empty = all)</span></Label>
-              <div className="flex flex-wrap gap-1.5">
-                {MAKES.map(make => (
-                  <button
-                    key={make}
-                    onClick={() => toggleMake(make)}
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${form.targetVehicleMakes.includes(make) ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground hover:border-primary/30"}`}
-                  >
-                    {make}
-                  </button>
-                ))}
+              {/* Custom interest tag */}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Add custom interest (e.g. Vintage Trucks)..."
+                  value={form.customInterest}
+                  onChange={e => setForm(f => ({ ...f, customInterest: e.target.value }))}
+                  onKeyDown={e => e.key === "Enter" && (e.preventDefault(), addCustomInterest())}
+                  className="text-sm h-8"
+                />
+                <Button size="sm" variant="outline" onClick={addCustomInterest} disabled={!form.customInterest.trim()} className="h-8">
+                  Add
+                </Button>
               </div>
+              {form.targetCategories.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {form.targetCategories.map(t => (
+                    <span key={t} className="flex items-center gap-1 bg-primary/15 border border-primary/30 text-primary text-xs px-2 py-0.5 rounded-full">
+                      {t}
+                      <button onClick={() => toggleCategory(t)} className="opacity-60 hover:opacity-100">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="space-y-1.5">
