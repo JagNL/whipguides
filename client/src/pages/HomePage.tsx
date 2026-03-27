@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import ListingCard from "@/components/ListingCard";
+import AdCard, { injectAdsIntoFeed } from "@/components/AdCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,29 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import type { Listing } from "@shared/schema";
+
+// ── Feed with injected ads ───────────────────────────────────
+function FeedWithAds({ listings }: { listings: any[] }) {
+  const { data: ads = [] } = useQuery<any[]>({
+    queryKey: ["/api/ads/serve", "marketplace"],
+    queryFn: () => apiRequest("GET", "/api/ads/serve?context=marketplace&limit=3").then(r => r.json()),
+    staleTime: 60_000,
+  });
+  const [dismissedIds, setDismissedIds] = useState<number[]>([]);
+  const activeAds = ads.filter((a: any) => !dismissedIds.includes(a.id));
+  const feed = injectAdsIntoFeed(listings, activeAds, 8);
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {feed.map((item: any, i) => {
+        if (item.__isAd) {
+          return <AdCard key={`ad-${item.ad.id}`} ad={item.ad} compact onDismiss={() => setDismissedIds(d => [...d, item.ad.id])} />;
+        }
+        return <ListingCard key={(item as any).id} listing={item as any} />;
+      })}
+    </div>
+  );
+}
 
 // ── Session ID for anonymous tracking ────────────────────────
 let _sessionId: string | null = null;
@@ -562,9 +586,7 @@ export default function HomePage() {
                   {!hasActiveFilters && <Link href="/sell"><Button className="mt-4">List Your Ride</Button></Link>}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {listings.map((listing: any) => <ListingCard key={listing.id} listing={listing} />)}
-                </div>
+<FeedWithAds listings={listings} />
               )
             }
           </>

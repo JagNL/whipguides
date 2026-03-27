@@ -8,6 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription,
@@ -18,11 +22,12 @@ import {
   Shield, Users, Tag, Flag, BarChart3,
   Ban, CheckCircle, Star, Trash2, Search,
   ShieldCheck, Activity, ChevronLeft, ChevronRight,
-  Eye, AlertTriangle,
+  Eye, AlertTriangle, Megaphone, Filter, CheckCircle2,
+  XCircle, Pause, Play, Plus, Key, Globe,
 } from "lucide-react";
 import { timeAgo } from "@/lib/utils";
 
-type AdminTab = "overview" | "users" | "listings" | "reports" | "groups" | "audit";
+type AdminTab = "overview" | "users" | "listings" | "reports" | "groups" | "ads" | "moderation" | "keywords" | "audit";
 
 // ─── Stat Card ───────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, color = "text-primary", urgent = false }: any) {
@@ -421,6 +426,71 @@ function ListingsTab() {
   );
 }
 
+// ─── Groups Tab ─────────────────────────────────────────────
+function GroupsTab() {
+  const { toast } = useToast();
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/groups"],
+    queryFn: () => apiRequest("GET", "/api/admin/groups").then(r => r.json()),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/groups/${id}`, { reason: "Admin removal" }).then(r => r.json()),
+    onSuccess: () => { toast({ title: "Group deleted" }); refetch(); },
+  });
+
+  return (
+    <div className="space-y-4">
+      {isLoading ? (
+        Array.from({length: 5}).map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)
+      ) : (data?.groups || []).length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <Shield className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-semibold">No groups yet</p>
+        </div>
+      ) : (
+        <div className="bg-card rounded-xl border border-border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="border-b border-border bg-secondary/50">
+              <tr>
+                <th className="text-left px-4 py-3 text-muted-foreground font-medium">Group</th>
+                <th className="text-left px-4 py-3 text-muted-foreground font-medium hidden md:table-cell">Owner</th>
+                <th className="text-left px-4 py-3 text-muted-foreground font-medium hidden lg:table-cell">Members</th>
+                <th className="text-right px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {(data?.groups || []).map((g: any) => (
+                <tr key={g.id} className="hover:bg-secondary/30 transition-colors">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{g.name}</span>
+                      {g.is_private && <Badge variant="outline" className="text-[10px]">Private</Badge>}
+                    </div>
+                    {g.description && <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{g.description}</p>}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
+                    @{g.owner?.username}
+                  </td>
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    {g.member_count || 0}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive gap-1"
+                      onClick={() => deleteMutation.mutate(g.id)}>
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Audit Log Tab ───────────────────────────────────────────
 function AuditTab() {
   const { data, isLoading } = useQuery<any>({
@@ -535,6 +605,9 @@ export default function AdminPage() {
     { id: "listings", label: "Listings", icon: Tag },
     { id: "reports", label: "Reports", icon: Flag },
     { id: "groups", label: "Groups", icon: Shield },
+    { id: "ads", label: "Ads", icon: Megaphone },
+    { id: "moderation", label: "Moderation", icon: Filter },
+    { id: "keywords", label: "Keywords", icon: Key },
     { id: "audit", label: "Audit Log", icon: Activity, superOnly: true },
   ];
 
@@ -577,7 +650,512 @@ export default function AdminPage() {
       {activeTab === "users" && <UsersTab isSuperAdmin={isSuperAdmin} />}
       {activeTab === "listings" && <ListingsTab />}
       {activeTab === "reports" && <ReportsTab />}
+      {activeTab === "groups" && <GroupsTab />}
+      {activeTab === "ads" && <AdsTab />}
+      {activeTab === "moderation" && <ModerationTab />}
+      {activeTab === "keywords" && <KeywordsTab />}
       {activeTab === "audit" && <AuditTab />}
+    </div>
+  );
+}
+
+// ─── Ads Tab ─────────────────────────────────────────────────
+function AdsTab() {
+  const { toast } = useToast();
+  const [adStatus, setAdStatus] = useState("pending_review");
+  const [rejectId, setRejectId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/ads", adStatus],
+    queryFn: () => apiRequest("GET", `/api/admin/ads?status=${adStatus}`).then(r => r.json()),
+  });
+
+  const { data: revenue } = useQuery<any>({
+    queryKey: ["/api/admin/ads/revenue"],
+    queryFn: () => apiRequest("GET", "/api/admin/ads/revenue").then(r => r.json()),
+  });
+
+  const approveMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/ads/${id}/approve`).then(r => r.json()),
+    onSuccess: () => { refetch(); toast({ title: "Ad approved and set live" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const rejectMut = useMutation({
+    mutationFn: ({ id, reason }: { id: number; reason: string }) =>
+      apiRequest("POST", `/api/admin/ads/${id}/reject`, { reason }).then(r => r.json()),
+    onSuccess: () => {
+      refetch();
+      setRejectId(null);
+      setRejectReason("");
+      toast({ title: "Ad rejected" });
+    },
+  });
+
+  const pauseMut = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/admin/ads/${id}/pause`).then(r => r.json()),
+    onSuccess: () => { refetch(); toast({ title: "Ad paused" }); },
+  });
+
+  const STATUS_STYLES: Record<string, string> = {
+    active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+    paused: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+    pending_review: "bg-blue-500/15 text-blue-400 border-blue-500/30",
+    rejected: "bg-destructive/15 text-destructive border-destructive/30",
+    draft: "bg-muted text-muted-foreground border-border",
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Revenue stats */}
+      {revenue && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: "Ad Accounts", value: revenue.totalAdAccounts, icon: Users },
+            { label: "Active Campaigns", value: revenue.activeAds, icon: Megaphone },
+            { label: "Pending Review", value: revenue.pendingAdsReview, icon: Eye, urgent: revenue.pendingAdsReview > 0 },
+            { label: "Est. Revenue", value: `$${revenue.estimatedRevenue}`, icon: BarChart3 },
+          ].map(({ label, value, icon: Icon, urgent = false }) => (
+            <div key={label} className={`bg-card border rounded-xl p-4 ${urgent ? "border-primary/40" : "border-border"}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground">{label}</span>
+                <Icon className={`w-4 h-4 ${urgent ? "text-primary" : "text-muted-foreground"}`} />
+              </div>
+              <p className="text-xl font-bold">{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Status filter */}
+      <div className="flex gap-2 flex-wrap">
+        {["pending_review", "active", "paused", "rejected"].map(s => (
+          <button
+            key={s}
+            onClick={() => setAdStatus(s)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+              adStatus === s ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground hover:border-primary/30"
+            }`}
+          >
+            {s.replace(/_/g, " ")}
+          </button>
+        ))}
+      </div>
+
+      {isLoading ? (
+        Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)
+      ) : (data?.ads || []).length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <Megaphone className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="font-semibold">No ads with status: {adStatus.replace(/_/g, " ")}</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {(data?.ads || []).map((ad: any) => (
+            <div key={ad.id} className="bg-card border border-border rounded-xl p-4">
+              <div className="flex items-start gap-3">
+                {/* Image preview */}
+                {(ad.image_id || ad.image_url) && (
+                  <div className="w-20 h-14 rounded-lg overflow-hidden bg-muted/30 shrink-0">
+                    <img
+                      src={ad.image_url || `#`}
+                      alt={ad.headline}
+                      className="w-full h-full object-cover"
+                      onError={(e: any) => e.target.style.display = 'none'}
+                    />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">{ad.headline}</span>
+                        <Badge className={`text-[9px] border ${STATUS_STYLES[ad.status] || STATUS_STYLES.draft}`}>
+                          {ad.status.replace(/_/g, " ")}
+                        </Badge>
+                      </div>
+                      {ad.body && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{ad.body}</p>}
+                      <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                        <span>{ad.account?.company_name}</span>
+                        <span>·</span>
+                        <span>{ad.campaign?.name}</span>
+                        <span>·</span>
+                        <a href={ad.cta_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-0.5">
+                          {ad.cta_text} <Globe className="w-3 h-3" />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                  {ad.status === "pending_review" && (
+                    <div className="flex gap-2 mt-3">
+                      <Button size="sm" className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        disabled={approveMut.isPending}
+                        onClick={() => approveMut.mutate(ad.id)}>
+                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Approve
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 border-destructive/40 text-destructive hover:bg-destructive/10"
+                        onClick={() => setRejectId(ad.id)}>
+                        <XCircle className="w-3.5 h-3.5 mr-1" /> Reject
+                      </Button>
+                    </div>
+                  )}
+                  {ad.status === "active" && (
+                    <Button size="sm" variant="outline" className="h-7 mt-2"
+                      onClick={() => pauseMut.mutate(ad.id)}>
+                      <Pause className="w-3.5 h-3.5 mr-1" /> Pause
+                    </Button>
+                  )}
+                  {ad.rejection_reason && (
+                    <p className="text-xs text-destructive mt-1">Rejected: {ad.rejection_reason}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Reject dialog */}
+      {rejectId !== null && (
+        <Dialog open={true} onOpenChange={() => { setRejectId(null); setRejectReason(""); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Reject ad</DialogTitle>
+              <DialogDescription>Provide a reason so the advertiser knows what to fix.</DialogDescription>
+            </DialogHeader>
+            <Textarea
+              placeholder="e.g. Image is missing, URL leads to unsupported content..."
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              rows={3}
+              className="resize-none text-sm"
+            />
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => { setRejectId(null); setRejectReason(""); }}>Cancel</Button>
+              <Button
+                className="flex-1 bg-destructive hover:bg-destructive/90 text-white"
+                disabled={!rejectReason.trim() || rejectMut.isPending}
+                onClick={() => rejectMut.mutate({ id: rejectId, reason: rejectReason })}
+              >
+                {rejectMut.isPending ? "Rejecting..." : "Reject Ad"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  );
+}
+
+// ─── Content Moderation Tab ───────────────────────────────────
+function ModerationTab() {
+  const { toast } = useToast();
+  const [flagStatus, setFlagStatus] = useState("pending");
+
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/ads/flags", flagStatus],
+    queryFn: () => apiRequest("GET", `/api/admin/ads/flags?status=${flagStatus}`).then(r => r.json()),
+  });
+
+  const { data: reportsData, isLoading: reportsLoading } = useQuery<any>({
+    queryKey: ["/api/admin/reports", "pending"],
+    queryFn: () => apiRequest("GET", "/api/admin/reports?status=pending").then(r => r.json()),
+  });
+
+  const updateFlag = useMutation({
+    mutationFn: ({ id, status, notes }: { id: number; status: string; notes?: string }) =>
+      apiRequest("PATCH", `/api/admin/ads/flags/${id}`, { status, notes }).then(r => r.json()),
+    onSuccess: () => { refetch(); toast({ title: "Flag updated" }); },
+  });
+
+  const updateReport = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiRequest("PATCH", `/api/admin/reports/${id}`, { status, resolution: "reviewed" }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reports"] });
+      toast({ title: "Report resolved" });
+    },
+  });
+
+  const REASON_COLORS: Record<string, string> = {
+    keyword_match: "text-yellow-400 bg-yellow-500/10 border-yellow-500/30",
+    user_report: "text-blue-400 bg-blue-500/10 border-blue-500/30",
+    ai_flag: "text-purple-400 bg-purple-500/10 border-purple-500/30",
+    manual: "text-muted-foreground bg-muted/30 border-border",
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Auto-flagged content */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold">Auto-Flagged Content</h3>
+          <div className="flex gap-1.5">
+            {["pending", "reviewed", "dismissed", "actioned"].map(s => (
+              <button key={s} onClick={() => setFlagStatus(s)}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+                  flagStatus === s ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground"
+                }`}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {isLoading ? (
+          Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)
+        ) : (data?.flags || []).length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground border border-dashed border-border rounded-xl">
+            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No flagged content with status: {flagStatus}</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(data?.flags || []).map((flag: any) => (
+              <div key={flag.id} className="bg-card border border-border rounded-xl p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium capitalize">{flag.content_type} #{flag.content_id}</span>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${REASON_COLORS[flag.reason] || REASON_COLORS.manual}`}>
+                        {flag.reason.replace(/_/g, " ")}
+                      </span>
+                      {flag.keyword && (
+                        <span className="text-[10px] bg-yellow-500/10 border border-yellow-500/30 text-yellow-400 px-1.5 py-0.5 rounded">
+                          keyword: "{flag.keyword}"
+                        </span>
+                      )}
+                    </div>
+                    {flag.auto_action && (
+                      <p className="text-xs text-muted-foreground">Auto action: <span className="text-foreground">{flag.auto_action}</span></p>
+                    )}
+                    <p className="text-xs text-muted-foreground">{timeAgo(flag.created_at)}</p>
+                  </div>
+                  {flag.status === "pending" && (
+                    <div className="flex gap-1.5 shrink-0">
+                      <Button size="sm" className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                        onClick={() => updateFlag.mutate({ id: flag.id, status: "dismissed" })}>
+                        Dismiss
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 border-destructive/40 text-destructive text-xs hover:bg-destructive/10"
+                        onClick={() => updateFlag.mutate({ id: flag.id, status: "actioned" })}>
+                        Action
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* User-submitted reports */}
+      <div>
+        <h3 className="font-semibold mb-3">User Reports</h3>
+        {reportsLoading ? (
+          Array.from({length: 3}).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)
+        ) : (reportsData?.reports || []).length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground border border-dashed border-border rounded-xl">
+            <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-30" />
+            <p className="text-sm">No pending user reports</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {(reportsData?.reports || []).map((report: any) => (
+              <div key={report.id} className="bg-card border border-border rounded-xl p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium capitalize">{report.target_type} #{report.target_id}</span>
+                      <span className="text-[10px] bg-blue-500/10 border border-blue-500/30 text-blue-400 px-2 py-0.5 rounded-full font-medium">
+                        {report.reason?.replace(/_/g, " ")}
+                      </span>
+                    </div>
+                    {report.description && <p className="text-xs text-muted-foreground line-clamp-2">{report.description}</p>}
+                    <p className="text-xs text-muted-foreground">
+                      Reported by @{report.reporter?.username} · {timeAgo(report.created_at)}
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <Button size="sm" className="h-7 bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
+                      onClick={() => updateReport.mutate({ id: report.id, status: "dismissed" })}>
+                      Dismiss
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 border-destructive/40 text-destructive text-xs hover:bg-destructive/10"
+                      onClick={() => updateReport.mutate({ id: report.id, status: "resolved" })}>
+                      Resolve
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Keywords Tab ─────────────────────────────────────────────
+function KeywordsTab() {
+  const { toast } = useToast();
+  const [showAdd, setShowAdd] = useState(false);
+  const [newKw, setNewKw] = useState({ keyword: "", matchType: "contains", action: "flag", appliesTo: ["listing", "post", "ad"] });
+
+  const { data: keywords = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/admin/ads/keywords"],
+    queryFn: () => apiRequest("GET", "/api/admin/ads/keywords").then(r => r.json()),
+  });
+
+  const addKeyword = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/ads/keywords", newKw).then(r => r.json()),
+    onSuccess: () => {
+      refetch();
+      setShowAdd(false);
+      setNewKw({ keyword: "", matchType: "contains", action: "flag", appliesTo: ["listing", "post", "ad"] });
+      toast({ title: "Keyword added" });
+    },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteKeyword = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/admin/ads/keywords/${id}`).then(r => r.json()),
+    onSuccess: () => { refetch(); toast({ title: "Keyword removed" }); },
+  });
+
+  const ACTION_STYLES: Record<string, string> = {
+    flag: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
+    block: "bg-orange-500/15 text-orange-400 border-orange-500/30",
+    auto_reject: "bg-destructive/15 text-destructive border-destructive/30",
+  };
+
+  const toggleAppliesTo = (type: string) => {
+    setNewKw(k => ({
+      ...k,
+      appliesTo: k.appliesTo.includes(type)
+        ? k.appliesTo.filter(t => t !== type)
+        : [...k.appliesTo, type],
+    }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold">Keyword Blocklist</h3>
+          <p className="text-sm text-muted-foreground">Keywords that trigger automatic flagging or blocking of content.</p>
+        </div>
+        <Button size="sm" onClick={() => setShowAdd(!showAdd)}>
+          <Plus className="w-4 h-4 mr-1.5" /> Add Keyword
+        </Button>
+      </div>
+
+      {showAdd && (
+        <div className="bg-card border border-primary/30 rounded-xl p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Keyword *</Label>
+              <Input
+                placeholder="e.g. stolen, scam"
+                value={newKw.keyword}
+                onChange={e => setNewKw(k => ({ ...k, keyword: e.target.value }))}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Match type</Label>
+              <Select value={newKw.matchType} onValueChange={v => setNewKw(k => ({ ...k, matchType: v }))}>
+                <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="contains">Contains</SelectItem>
+                  <SelectItem value="exact">Exact match</SelectItem>
+                  <SelectItem value="starts_with">Starts with</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Action</Label>
+            <div className="flex gap-2">
+              {["flag", "block", "auto_reject"].map(a => (
+                <button key={a} onClick={() => setNewKw(k => ({ ...k, action: a }))}
+                  className={`flex-1 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                    newKw.action === a ? ACTION_STYLES[a] : "bg-muted/40 border-border text-muted-foreground"
+                  }`}>
+                  {a.replace(/_/g, " ")}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Applies to</Label>
+            <div className="flex gap-2">
+              {["listing", "post", "ad"].map(t => (
+                <button key={t} onClick={() => toggleAppliesTo(t)}
+                  className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors ${
+                    newKw.appliesTo.includes(t) ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground"
+                  }`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button className="flex-1" disabled={!newKw.keyword.trim() || addKeyword.isPending}
+              onClick={() => addKeyword.mutate()}>
+              {addKeyword.isPending ? "Adding..." : "Add Keyword"}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        Array.from({length: 5}).map((_, i) => <Skeleton key={i} className="h-12 rounded-xl" />)
+      ) : keywords.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground border border-dashed border-border rounded-xl">
+          <Key className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p className="text-sm">No keywords yet. Add some to protect the community.</p>
+        </div>
+      ) : (
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="border-b border-border bg-secondary/50">
+              <tr>
+                <th className="text-left px-4 py-3 text-muted-foreground font-medium">Keyword</th>
+                <th className="text-left px-4 py-3 text-muted-foreground font-medium hidden sm:table-cell">Match</th>
+                <th className="text-left px-4 py-3 text-muted-foreground font-medium">Action</th>
+                <th className="text-left px-4 py-3 text-muted-foreground font-medium hidden md:table-cell">Applies to</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {keywords.map((kw: any) => (
+                <tr key={kw.id} className="hover:bg-secondary/20 transition-colors">
+                  <td className="px-4 py-3 font-mono font-medium text-sm">{kw.keyword}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground hidden sm:table-cell capitalize">{kw.match_type}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${ACTION_STYLES[kw.action] || "bg-muted text-muted-foreground border-border"}`}>
+                      {kw.action.replace(/_/g, " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground hidden md:table-cell">
+                    {(kw.applies_to || []).join(", ")}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10"
+                      onClick={() => deleteKeyword.mutate(kw.id)}>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

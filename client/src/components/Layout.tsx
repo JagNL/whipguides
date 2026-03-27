@@ -10,7 +10,7 @@ import {
 import {
   Search, Plus, Sun, Moon, Menu, X,
   Gauge, Users, LogOut, User, MessageSquare,
-  ShieldCheck, ChevronDown, Shield, BookOpen,
+  ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,6 +40,7 @@ const navLinks = [
   { href: "/", label: "Marketplace", icon: Gauge },
   { href: "/groups", label: "Groups", icon: Users },
   { href: "/guides", label: "Guides", icon: BookOpen },
+  { href: "/advertise", label: "Advertise", icon: Megaphone },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {

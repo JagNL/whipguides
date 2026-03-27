@@ -1,8 +1,10 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { supabaseAdmin as supabaseAdminForRoutes } from "./supabase";
 import { authRouter, requireAuth } from "./auth";
 import { adminRouter, reportRouter } from "./admin";
+import { adsRouter, adminAdsRouter } from "./ads";
 import { uploadRouter } from "./upload";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -20,6 +22,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ADMIN ROUTES
   // ============================================================
   app.use("/api/admin", adminRouter);
+  app.use("/api/admin/ads", adminAdsRouter);
+  app.use("/api/ads", adsRouter);
   app.use("/api/reports", reportRouter);
 
   // ============================================================
@@ -106,6 +110,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ...req.body,
         sellerId: currentUser.id,
       });
+      // Keyword check (fire & forget) — flag if match
+      import("./ads").then(({ checkKeywords }) => {
+        const text = [req.body.title, req.body.description].filter(Boolean).join(" ");
+        checkKeywords(text, "listing").then(kw => {
+          if (kw.flagged) {
+            supabaseAdminForRoutes.from("content_flags").insert({
+              content_type: "listing", content_id: listing.id,
+              reason: "keyword_match", keyword: kw.keyword, auto_action: kw.action,
+            }).then(() => {});
+          }
+        });
+      }).catch(() => {});
       return res.status(201).json(listing);
     } catch (err: any) {
       return res.status(400).json({ error: err.message });

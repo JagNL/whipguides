@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { Heart, Eye, MapPin, ShieldCheck, Star, BookmarkPlus, Check, ChevronDown } from "lucide-react";
+import ReportButton from "@/components/ReportButton";
 import { Badge } from "@/components/ui/badge";
 import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -241,6 +242,11 @@ export default function ListingCard({ listing, compact = false }: ListingCardPro
           )}
         </div>
       </Link>
+
+      {/* Report button (bottom of card, only for logged-in non-sellers) */}
+      <div className="absolute bottom-2 left-2">
+        <ReportButton targetType="listing" targetId={listing.id} iconOnly />
+      </div>
 
       {/* Action buttons overlay */}
       <div className="absolute top-2 right-2 flex flex-col gap-1">
