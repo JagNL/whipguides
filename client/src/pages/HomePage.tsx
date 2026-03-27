@@ -19,6 +19,7 @@ import {
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useCfUrl, useGoogleMapsKey } from "@/hooks/use-cf-url";
 import type { Listing } from "@shared/schema";
 
 // ── Feed with injected ads ───────────────────────────────────
