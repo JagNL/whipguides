@@ -86,11 +86,22 @@ export default function ImageUploader({
       const { uploadUrl, imageId, devMode } = await urlRes.json();
 
       if (devMode || !uploadUrl) {
-        // Dev mode — no real CF account, just use previewUrl as the "id"
+        // No Cloudflare — upload via proxy which returns a base64 data URL
+        const token = getToken();
+        const proxyForm = new FormData();
+        proxyForm.append("file", file);
+        proxyForm.append("metadata", JSON.stringify({ type: "listing" }));
+        const proxyRes = await fetch("/api/upload/proxy", {
+          method: "POST",
+          body: proxyForm,
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!proxyRes.ok) throw new Error(await proxyRes.text());
+        const { imageId: proxyId, cdnUrl: dataUrl } = await proxyRes.json();
         setImages(prev => {
           const next = prev.map(img =>
             img.imageId === tempId
-              ? { ...img, imageId, uploading: false, cdnUrl: previewUrl }
+              ? { ...img, imageId: proxyId, uploading: false, cdnUrl: dataUrl || previewUrl }
               : img
           );
           syncToParent(next);
@@ -326,7 +337,10 @@ export function AvatarUploader({ currentUrl, onUpload, size = 80 }: AvatarUpload
       if (!res.ok) throw new Error(await res.text());
       const { imageId, cdnUrl, devMode } = await res.json();
 
-      onUpload(imageId, devMode ? localPreview : (cdnUrl || localPreview));
+      // devMode: cdnUrl is a base64 data URL (no Cloudflare configured)
+      // production: cdnUrl is the CF Images CDN URL
+      // Either way, use cdnUrl if present, else fall back to the local blob preview
+      onUpload(imageId, cdnUrl || localPreview);
       toast({ title: "Photo updated" });
     } catch (err) {
       console.error("Avatar upload error:", err);

@@ -38,11 +38,9 @@ uploadRouter.post("/direct-url", async (req: Request, res: Response) => {
 
   const { metadata } = req.body; // e.g. { type: "listing", userId: 1 }
 
-  const formData = new FormData();
-  formData.append("requireSignedURLs", "false");
-  if (metadata) {
-    formData.append("metadata", JSON.stringify(metadata));
-  }
+  const urlBody = new URLSearchParams();
+  urlBody.set("requireSignedURLs", "false");
+  if (metadata) urlBody.set("metadata", JSON.stringify(metadata));
 
   const cfRes = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
@@ -50,8 +48,9 @@ uploadRouter.post("/direct-url", async (req: Request, res: Response) => {
       method: "POST",
       headers: {
         Authorization: `Bearer ${CF_API_TOKEN}`,
+        "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: formData,
+      body: urlBody.toString(),
     }
   );
 
@@ -78,26 +77,38 @@ uploadRouter.post("/proxy", upload.single("file"), async (req: Request, res: Res
   if (!req.file) return res.status(400).json({ error: "No file provided" });
 
   if (!isCloudflareConfigured()) {
-    // Dev fallback
-    return res.json({ imageId: `dev-${Date.now()}`, devMode: true });
+    // No Cloudflare — encode as base64 data URL so the image still works.
+    // This is the fallback when CF isn't set up yet.
+    const dataUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+    const fakeId = `data-${Date.now()}`;
+    return res.json({ imageId: fakeId, cdnUrl: dataUrl, devMode: true });
   }
 
   const { metadata } = req.body;
 
   // Step 1: Get a direct upload URL from Cloudflare
-  const urlFormData = new FormData();
-  urlFormData.append("requireSignedURLs", "false");
-  if (metadata) urlFormData.append("metadata", metadata);
+  // Use URLSearchParams (application/x-www-form-urlencoded) — more reliable
+  // than FormData for text-only fields with Node's built-in fetch.
+  const urlBody = new URLSearchParams();
+  urlBody.set("requireSignedURLs", "false");
+  if (metadata) urlBody.set("metadata", typeof metadata === "string" ? metadata : JSON.stringify(metadata));
 
   const cfUrlRes = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
-    { method: "POST", headers: { Authorization: `Bearer ${CF_API_TOKEN}` }, body: urlFormData }
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${CF_API_TOKEN}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: urlBody.toString(),
+    }
   );
 
   const cfUrlData = await cfUrlRes.json() as any;
   if (!cfUrlRes.ok || !cfUrlData.success) {
-    console.error("CF direct upload URL error:", cfUrlData.errors);
-    return res.status(500).json({ error: "Failed to get upload URL" });
+    console.error("CF direct upload URL error (status", cfUrlRes.status, "):", JSON.stringify(cfUrlData));
+    return res.status(500).json({ error: "Failed to get upload URL", detail: cfUrlData?.errors?.[0]?.message });
   }
 
   const { uploadURL, id: imageId } = cfUrlData.result;

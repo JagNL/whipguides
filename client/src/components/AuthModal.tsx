@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -293,6 +293,12 @@ export function AuthModal({ open, onClose, defaultMode = "login" }: AuthModalPro
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-sm p-0 overflow-hidden">
+        <DialogTitle className="sr-only">
+          {mode === "login" ? "Sign in to WhipGuides" : "Create your WhipGuides account"}
+        </DialogTitle>
+        <DialogDescription className="sr-only">
+          {mode === "login" ? "Enter your credentials to sign in" : "Fill in the form to create a free account"}
+        </DialogDescription>
         <div className="p-6">
           {/* Logo */}
           <div className="text-center mb-5">
