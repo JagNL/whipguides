@@ -208,7 +208,11 @@ function SaveSearchModal({ filters, onClose, onSaved }: { filters: any; onClose:
   );
 }
 
-// ── Main HomePage ─────────────────────────────────────────────
+// ── Module-level location memory (persists across navigation, not refresh) ─
+// Can't use localStorage in this iframe env, so we use module state.
+let _savedLocation = { display: "", lat: undefined as number | undefined, lng: undefined as number | undefined, radius: "any" };
+
+// ── Main HomePage ──────────────────────────────────────────────
 export default function HomePage() {
   const [location] = useLocation();
   const { isAuthenticated, user } = useAuth();
@@ -221,10 +225,10 @@ export default function HomePage() {
   const [condition, setCondition] = useState("any");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
-  const [locationFilter, setLocationFilter] = useState("");
-  const [searchLat, setSearchLat] = useState<number | undefined>();
-  const [searchLng, setSearchLng] = useState<number | undefined>();
-  const [radiusMiles, setRadiusMiles] = useState("any");
+  const [locationFilter, setLocationFilter] = useState(_savedLocation.display);
+  const [searchLat, setSearchLat] = useState<number | undefined>(_savedLocation.lat);
+  const [searchLng, setSearchLng] = useState<number | undefined>(_savedLocation.lng);
+  const [radiusMiles, setRadiusMiles] = useState(_savedLocation.radius);
   const [make, setMake] = useState("");
   const [model, setModel] = useState("");
   const [minYear, setMinYear] = useState("");
@@ -242,9 +246,19 @@ export default function HomePage() {
   const currentFilters = { q: activeSearch, category: activeCategory, condition, minPrice, maxPrice, locationFilter, make, model, minYear, maxYear, radiusMiles };
 
   // ── Browse listings ──
-  const [activeSearchLat, setActiveSearchLat] = useState<number | undefined>();
-  const [activeSearchLng, setActiveSearchLng] = useState<number | undefined>();
-  const [activeRadius, setActiveRadius] = useState("any");
+  // Active search coords — initialized from saved if present
+  const [activeSearchLat, setActiveSearchLat] = useState<number | undefined>(_savedLocation.lat);
+  const [activeSearchLng, setActiveSearchLng] = useState<number | undefined>(_savedLocation.lng);
+  const [activeRadius, setActiveRadius] = useState(_savedLocation.radius);
+
+  // Persist location to module state whenever it changes
+  useEffect(() => {
+    _savedLocation = { display: locationFilter, lat: searchLat, lng: searchLng, radius: radiusMiles };
+    // Also immediately apply to active search so results update without needing Apply Filters
+    setActiveSearchLat(searchLat);
+    setActiveSearchLng(searchLng);
+    setActiveRadius(radiusMiles);
+  }, [locationFilter, searchLat, searchLng, radiusMiles]);
 
   const { data: listings = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/search/listings", { q: activeSearch, activeCategory, condition, minPrice, maxPrice, locationFilter, make, model, minYear, maxYear, minMileage, maxMileage, sortBy, activeSearchLat, activeSearchLng, activeRadius }],
@@ -387,6 +401,69 @@ export default function HomePage() {
         </div>
       </div>
 
+      {/* ─── Always-visible Location + Radius bar ──────────────── */}
+      <div className="border-b border-border bg-background sticky top-[57px] z-30 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 py-2.5 flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          <MapPin className="w-4 h-4 text-primary shrink-0" />
+          <div className="flex-1 min-w-0 max-w-sm">
+            <LocationPicker
+              value={locationFilter}
+              onChange={(display, coords) => {
+                setLocationFilter(display);
+                setSearchLat(coords?.lat);
+                setSearchLng(coords?.lng);
+                // Clear radius if location cleared
+                if (!display) setRadiusMiles("any");
+              }}
+              placeholder="ZIP code or city — search near you"
+            />
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Select
+              value={radiusMiles}
+              onValueChange={setRadiusMiles}
+              disabled={!searchLat && !locationFilter}
+            >
+              <SelectTrigger className="w-36 h-9 text-sm bg-secondary border-border">
+                <SelectValue placeholder="Distance" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any distance</SelectItem>
+                <SelectItem value="10">Within 10 mi</SelectItem>
+                <SelectItem value="25">Within 25 mi</SelectItem>
+                <SelectItem value="50">Within 50 mi</SelectItem>
+                <SelectItem value="100">Within 100 mi</SelectItem>
+                <SelectItem value="250">Within 250 mi</SelectItem>
+                <SelectItem value="500">Within 500 mi</SelectItem>
+              </SelectContent>
+            </Select>
+            {locationFilter && (
+              <button
+                onClick={() => {
+                  setLocationFilter("");
+                  setSearchLat(undefined);
+                  setSearchLng(undefined);
+                  setRadiusMiles("any");
+                }}
+                className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-lg hover:bg-muted/60"
+                title="Clear location"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {searchLat && radiusMiles !== "any" && (
+            <span className="text-xs text-emerald-400 flex items-center gap-1 shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Searching within {radiusMiles} mi
+            </span>
+          )}
+          {locationFilter && !searchLat && (
+            <span className="text-xs text-yellow-400 shrink-0">Select from dropdown to pin location</span>
+          )}
+        </div>
+      </div>
+
       <div className="max-w-7xl mx-auto px-4 py-6">
 
         {/* Saved searches bar */}
@@ -499,10 +576,17 @@ export default function HomePage() {
 
             {/* Toolbar */}
             <div className="flex items-center gap-2 mb-3 flex-wrap">
-              <div className="text-sm text-muted-foreground flex-1">
+              <div className="text-sm text-muted-foreground flex-1 flex items-center gap-2 flex-wrap">
                 {isLoading ? "Searching..." : `${listings.length} listing${listings.length !== 1 ? "s" : ""}`}
                 {activeSearch && <span className="text-foreground font-medium"> for "{activeSearch}"</span>}
                 {activeCategory !== "All" && <span className="text-primary font-medium"> in {activeCategory}</span>}
+                {activeSearchLat && activeRadius !== "any" && locationFilter && (
+                  <span className="inline-flex items-center gap-1 bg-primary/10 text-primary text-xs font-medium px-2 py-0.5 rounded-full">
+                    <MapPin className="w-3 h-3" />
+                    {locationFilter} · {activeRadius} mi
+                    <button onClick={() => { setLocationFilter(""); setSearchLat(undefined); setSearchLng(undefined); setRadiusMiles("any"); }} className="ml-0.5 opacity-60 hover:opacity-100">×</button>
+                  </span>
+                )}
               </div>
               <Button variant="outline" size="sm" onClick={() => setShowFilters(f => !f)}
                 className={`gap-1.5 ${showFilters ? "border-primary text-primary" : ""}`}
@@ -563,44 +647,7 @@ export default function HomePage() {
                     <label className="text-xs font-medium text-muted-foreground">Model</label>
                     <Input placeholder="e.g. F-150" value={model} onChange={e => setModel(e.target.value)} className="h-8 text-sm bg-secondary" />
                   </div>
-                  <div className="space-y-1 col-span-2 sm:col-span-1">
-                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                      <MapPin className="w-3 h-3" /> Near location
-                    </label>
-                    <LocationPicker
-                      value={locationFilter}
-                      onChange={(display, coords) => {
-                        setLocationFilter(display);
-                        setSearchLat(coords?.lat);
-                        setSearchLng(coords?.lng);
-                      }}
-                      placeholder="City, state or ZIP"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                      <MapPin className="w-3 h-3" /> Radius
-                    </label>
-                    <Select value={radiusMiles} onValueChange={setRadiusMiles} disabled={!searchLat}>
-                      <SelectTrigger className="h-8 text-sm bg-secondary">
-                        <SelectValue placeholder={searchLat ? "Any distance" : "Set location first"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="any">Any distance</SelectItem>
-                        <SelectItem value="10">Within 10 mi</SelectItem>
-                        <SelectItem value="25">Within 25 mi</SelectItem>
-                        <SelectItem value="50">Within 50 mi</SelectItem>
-                        <SelectItem value="100">Within 100 mi</SelectItem>
-                        <SelectItem value="250">Within 250 mi</SelectItem>
-                        <SelectItem value="500">Within 500 mi</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {searchLat && radiusMiles !== "any" && (
-                      <p className="text-[10px] text-emerald-400 flex items-center gap-1">
-                        <MapPin className="w-2.5 h-2.5" /> Location pinned
-                      </p>
-                    )}
-                  </div>
+                  {/* Location + radius moved to the always-visible bar above the results */}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><DollarSign className="w-3 h-3" />Min Price</label>
                     <Input type="number" placeholder="0" value={minPrice} onChange={e => setMinPrice(e.target.value)} className="h-8 text-sm bg-secondary" />
@@ -635,12 +682,7 @@ export default function HomePage() {
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <Button size="sm" onClick={() => {
-                    handleSearch();
-                    setActiveSearchLat(searchLat);
-                    setActiveSearchLng(searchLng);
-                    setActiveRadius(radiusMiles);
-                  }} className="gap-1.5">
+                  <Button size="sm" onClick={handleSearch} className="gap-1.5">
                     <Search className="w-3.5 h-3.5" /> Apply Filters
                   </Button>
                 </div>
