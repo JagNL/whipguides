@@ -1,8 +1,9 @@
 import { useCallback, useRef, useState } from "react";
-import { apiRequest } from "@/lib/queryClient";
-import { Camera, X, Loader2, ImagePlus, GripVertical } from "lucide-react";
+import { apiRequest, getToken } from "@/lib/queryClient";
+import { Camera, X, Loader2, ImagePlus, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import AvatarCropModal from "@/components/AvatarCropModal";
 
 // ─── Types ───────────────────────────────────────────────────
 interface UploadedImage {
@@ -280,8 +281,8 @@ export default function ImageUploader({
   );
 }
 
-// ─── Avatar Uploader (single photo, circular) ────────────────
-interface AvatarUploaderProps {
+// ─── Avatar Uploader (single photo, circular, with crop/zoom) ─
+export interface AvatarUploaderProps {
   currentUrl?: string | null;
   onUpload: (imageId: string, previewUrl: string) => void;
   size?: number;
@@ -290,43 +291,46 @@ interface AvatarUploaderProps {
 export function AvatarUploader({ currentUrl, onUpload, size = 80 }: AvatarUploaderProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<string | null>(currentUrl || null);
-  const [isUploading, setIsUploading] = useState(false);
+  const [preview, setPreview]           = useState<string | null>(currentUrl || null);
+  const [isUploading, setIsUploading]   = useState(false);
+  const [cropSrc, setCropSrc]           = useState<string | null>(null); // triggers crop modal
 
-  const handleFile = async (file: File) => {
+  // Called when user picks a file — open crop modal first
+  const handleFileSelected = (file: File) => {
     if (!file.type.startsWith("image/")) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: "File too large", description: "Avatar must be under 5 MB.", variant: "destructive" });
-      return;
-    }
+    const blobUrl = URL.createObjectURL(file);
+    setCropSrc(blobUrl);
+  };
 
-    const localPreview = URL.createObjectURL(file);
+  // Called when user confirms the crop — upload the cropped blob via server proxy
+  const handleCropConfirm = async (blob: Blob) => {
+    setCropSrc(null);
+    const localPreview = URL.createObjectURL(blob);
     setPreview(localPreview);
     setIsUploading(true);
 
     try {
-      const urlRes = await apiRequest("POST", "/api/upload/direct-url", {
-        metadata: { type: "avatar" },
-      });
-      const { uploadUrl, imageId, devMode } = await urlRes.json();
-
-      if (devMode || !uploadUrl) {
-        onUpload(imageId, localPreview);
-        setIsUploading(false);
-        return;
-      }
-
       const formData = new FormData();
-      formData.append("file", file);
-      const cfRes = await fetch(uploadUrl, { method: "POST", body: formData });
-      if (!cfRes.ok) throw new Error("Upload failed");
+      formData.append("file", blob, "avatar.jpg");
+      formData.append("metadata", JSON.stringify({ type: "avatar" }));
 
-      const cdnRes = await apiRequest("GET", `/api/upload/image-url/${imageId}`);
-      const { url } = await cdnRes.json();
+      // Use server proxy upload — avoids mobile CORS issues with direct CF uploads
+      const token = getToken();
+      const res = await fetch("/api/upload/proxy", {
+        method: "POST",
+        body: formData,
+        // Do NOT set Content-Type — browser sets it with the correct multipart boundary
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
 
-      onUpload(imageId, url || localPreview);
-    } catch {
-      toast({ title: "Upload failed", description: "Could not upload avatar.", variant: "destructive" });
+      if (!res.ok) throw new Error(await res.text());
+      const { imageId, cdnUrl, devMode } = await res.json();
+
+      onUpload(imageId, devMode ? localPreview : (cdnUrl || localPreview));
+      toast({ title: "Photo updated" });
+    } catch (err) {
+      console.error("Avatar upload error:", err);
+      toast({ title: "Upload failed", description: "Could not save your photo. Please try again.", variant: "destructive" });
       setPreview(currentUrl || null);
     } finally {
       setIsUploading(false);
@@ -334,43 +338,69 @@ export function AvatarUploader({ currentUrl, onUpload, size = 80 }: AvatarUpload
   };
 
   return (
-    <div className="relative inline-block" style={{ width: size, height: size }}>
-      {/* Circle avatar */}
-      <div
-        className="rounded-full overflow-hidden bg-secondary border-2 border-border w-full h-full"
-      >
-        {preview ? (
-          <img src={preview} alt="Avatar" className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-            <Camera className="w-6 h-6" />
-          </div>
+    <>
+      <div className="relative inline-block" style={{ width: size, height: size }}>
+        {/* Circle avatar */}
+        <div className="rounded-full overflow-hidden bg-secondary border-2 border-border w-full h-full">
+          {preview ? (
+            <img src={preview} alt="Avatar" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+              <Camera className="w-6 h-6" />
+            </div>
+          )}
+        </div>
+
+        {/* Upload overlay — always visible on mobile, hover on desktop */}
+        <button
+          type="button"
+          data-testid="button-upload-avatar"
+          onClick={() => !isUploading && fileInputRef.current?.click()}
+          disabled={isUploading}
+          className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center
+            opacity-100 sm:opacity-0 sm:hover:opacity-100 transition-opacity"
+          aria-label="Change photo"
+        >
+          {isUploading ? (
+            <Loader2 className="w-5 h-5 text-white animate-spin" />
+          ) : (
+            <div className="flex flex-col items-center gap-0.5">
+              <Camera className="w-5 h-5 text-white" />
+              <span className="text-[10px] text-white font-medium leading-none">Edit</span>
+            </div>
+          )}
+        </button>
+
+        {/* Edit badge — bottom-right corner (always visible) */}
+        {!isUploading && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="absolute -bottom-0.5 -right-0.5 w-6 h-6 rounded-full bg-primary flex items-center justify-center shadow-lg border-2 border-background"
+            aria-label="Edit photo"
+          >
+            <Pencil className="w-3 h-3 text-white" />
+          </button>
         )}
+
+        {/* Hidden input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,image/heic,image/heif"
+          className="hidden"
+          onChange={e => e.target.files?.[0] && handleFileSelected(e.target.files[0])}
+        />
       </div>
 
-      {/* Upload overlay button */}
-      <button
-        type="button"
-        data-testid="button-upload-avatar"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={isUploading}
-        className="absolute inset-0 rounded-full bg-background/60 hover:bg-background/75 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
-      >
-        {isUploading ? (
-          <Loader2 className="w-5 h-5 text-primary animate-spin" />
-        ) : (
-          <Camera className="w-5 h-5 text-primary" />
-        )}
-      </button>
-
-      {/* Hidden input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
-      />
-    </div>
+      {/* Crop modal */}
+      {cropSrc && (
+        <AvatarCropModal
+          imageSrc={cropSrc}
+          onConfirm={handleCropConfirm}
+          onClose={() => setCropSrc(null)}
+        />
+      )}
+    </>
   );
 }

@@ -1,5 +1,16 @@
 import { Router, type Request, type Response } from "express";
+import multer from "multer";
 import { requireAuth } from "./auth";
+
+// In-memory multer (no disk writes — send straight to CF)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are allowed"));
+  },
+});
 
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
@@ -56,6 +67,59 @@ uploadRouter.post("/direct-url", async (req: Request, res: Response) => {
     imageId: cfData.result.id,
     devMode: false,
   });
+});
+
+// ============================================================
+// POST /api/upload/proxy
+// Server-side proxy: client sends file to us, we forward to Cloudflare.
+// Avoids mobile CORS issues with direct CF uploads.
+// ============================================================
+uploadRouter.post("/proxy", upload.single("file"), async (req: Request, res: Response) => {
+  if (!req.file) return res.status(400).json({ error: "No file provided" });
+
+  if (!isCloudflareConfigured()) {
+    // Dev fallback
+    return res.json({ imageId: `dev-${Date.now()}`, devMode: true });
+  }
+
+  const { metadata } = req.body;
+
+  // Step 1: Get a direct upload URL from Cloudflare
+  const urlFormData = new FormData();
+  urlFormData.append("requireSignedURLs", "false");
+  if (metadata) urlFormData.append("metadata", metadata);
+
+  const cfUrlRes = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
+    { method: "POST", headers: { Authorization: `Bearer ${CF_API_TOKEN}` }, body: urlFormData }
+  );
+
+  const cfUrlData = await cfUrlRes.json() as any;
+  if (!cfUrlRes.ok || !cfUrlData.success) {
+    console.error("CF direct upload URL error:", cfUrlData.errors);
+    return res.status(500).json({ error: "Failed to get upload URL" });
+  }
+
+  const { uploadURL, id: imageId } = cfUrlData.result;
+
+  // Step 2: Upload the file buffer directly to Cloudflare
+  const fileFormData = new FormData();
+  fileFormData.append(
+    "file",
+    new Blob([req.file.buffer], { type: req.file.mimetype }),
+    req.file.originalname || "avatar.jpg"
+  );
+
+  const cfUploadRes = await fetch(uploadURL, { method: "POST", body: fileFormData });
+  if (!cfUploadRes.ok) {
+    const errText = await cfUploadRes.text();
+    console.error("CF proxy upload error:", errText);
+    return res.status(500).json({ error: "Cloudflare upload failed" });
+  }
+
+  // Step 3: Return the imageId + CDN URL
+  const cdnUrl = CF_IMAGES_URL ? `${CF_IMAGES_URL}/${imageId}/public` : null;
+  res.json({ imageId, cdnUrl, devMode: false });
 });
 
 // ============================================================

@@ -6,7 +6,7 @@ const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 let _authToken: string | null = null;
 export function setAuthToken(token: string | null) { _authToken = token; }
 
-function getToken(): string | null {
+export function getToken(): string | null {
   return _authToken;
 }
 
