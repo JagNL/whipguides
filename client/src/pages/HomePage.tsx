@@ -464,16 +464,25 @@ function LeafletMap({
     const marker = L.marker([lat, lng], { icon, draggable: true }).addTo(map);
     markerRef.current = marker;
 
-    // Move circle live while dragging
+    // Move circle live while dragging — directly update SVG path for zero-lag
     marker.on("drag", () => {
+      isDraggingRef.current = true;
       const p = marker.getLatLng();
       if (circleRef.current) {
-        circleRef.current.setLatLng([p.lat, p.lng]);
+        // Bypass Leaflet's async redraw: set latlng directly + force immediate SVG repaint
+        circleRef.current._latlng = p;
+        if (circleRef.current._map) {
+          circleRef.current._project();
+          circleRef.current._update();
+        }
       }
     });
 
     marker.on("dragend", () => {
+      isDraggingRef.current = true; // stays true until the useEffect clears it
       const p = marker.getLatLng();
+      // Sync Leaflet state cleanly on drop
+      if (circleRef.current) circleRef.current.setLatLng([p.lat, p.lng]);
       onDragEndRef.current(p.lat, p.lng);
     });
 
@@ -507,12 +516,19 @@ function LeafletMap({
     };
   }, []);
 
-  // Update circle + marker position
+  // Track whether the lat/lng change came from a drag (don't re-pan in that case)
+  const isDraggingRef = useRef(false);
+
+  // Update circle + marker position (fires on radius change OR after drag-end reverse-geocode)
   useEffect(() => {
     const L = leafletRef.current;
     const map = mapInstanceRef.current;
     if (!L || !map) return;
+
+    // Reposition marker
     if (markerRef.current) markerRef.current.setLatLng([lat, lng]);
+
+    // Rebuild circle (needed when radius changes or position snaps after geocode)
     if (circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
     if (radiusMiles > 0) {
       circleRef.current = L.circle([lat, lng], {
@@ -520,10 +536,14 @@ function LeafletMap({
         color: "hsl(25, 95%, 53%)", fillColor: "hsl(25, 95%, 53%)",
         fillOpacity: 0.08, weight: 2,
       }).addTo(map);
-      map.flyToBounds(circleRef.current.getBounds(), { duration: 0.4, padding: [20, 20] });
-    } else {
+      // Only fly to bounds when radius changes, not after every drag
+      if (!isDraggingRef.current) {
+        map.flyToBounds(circleRef.current.getBounds(), { duration: 0.4, padding: [20, 20] });
+      }
+    } else if (!isDraggingRef.current) {
       map.flyTo([lat, lng], 11, { duration: 0.4 });
     }
+    isDraggingRef.current = false;
   }, [radiusMiles, lat, lng]);
 
   return (
