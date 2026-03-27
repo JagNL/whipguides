@@ -10,7 +10,7 @@ import {
 import {
   Search, Plus, Bell, Sun, Moon, Menu, X,
   Gauge, Users, LogOut, User, MessageSquare,
-  ShieldCheck, ChevronDown, Shield,
+  ShieldCheck, ChevronDown, Shield, BookOpen,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthModal } from "@/components/AuthModal";
@@ -38,6 +38,7 @@ function WhipGuidesLogo({ size = 32 }: { size?: number }) {
 const navLinks = [
   { href: "/", label: "Marketplace", icon: Gauge },
   { href: "/groups", label: "Groups", icon: Users },
+  { href: "/guides", label: "Guides", icon: BookOpen },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {

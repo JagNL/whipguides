@@ -13,6 +13,9 @@ import ProfilePage from "@/pages/ProfilePage";
 import CreateListingPage from "@/pages/CreateListingPage";
 import MessagesPage from "@/pages/MessagesPage";
 import AdminPage from "@/pages/AdminPage";
+import GuidesPage from "@/pages/GuidesPage";
+import GuideDetailPage from "@/pages/GuideDetailPage";
+import CreateGuidePage from "@/pages/CreateGuidePage";
 import NotFound from "@/pages/not-found";
 
 export default function App() {
@@ -30,6 +33,9 @@ export default function App() {
             <Route path="/messages" component={() => <Layout><MessagesPage /></Layout>} />
             <Route path="/messages/:userId" component={({ params }) => <Layout><MessagesPage threadUserId={Number(params.userId)} /></Layout>} />
             <Route path="/admin" component={() => <Layout><AdminPage /></Layout>} />
+            <Route path="/guides" component={() => <Layout><GuidesPage /></Layout>} />
+            <Route path="/guides/new" component={() => <Layout><CreateGuidePage /></Layout>} />
+            <Route path="/guides/:id" component={({ params }) => <Layout><GuideDetailPage id={Number(params.id)} /></Layout>} />
             <Route component={NotFound} />
           </Switch>
         </Router>

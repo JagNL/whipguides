@@ -7,6 +7,59 @@ import type {
   Review, InsertReview,
 } from "@shared/schema";
 
+// ── Guide types (not in Drizzle schema — raw Supabase) ──
+export interface GuidePart {
+  name: string;
+  link?: string;
+  price?: number;
+}
+
+export interface GuideStep {
+  title: string;
+  description: string;
+  imageUrls?: string[];
+  tools?: string[];
+  parts?: string[];
+  estimatedTime?: string;
+}
+
+export interface Guide {
+  id: number;
+  title: string;
+  description: string;
+  vehicleMake: string;
+  vehicleModel: string;
+  vehicleYearStart: string;
+  vehicleYearEnd: string;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  timeEstimate: string;
+  category?: string;
+  tags: string[];
+  tools: string[];
+  parts: GuidePart[];
+  steps: GuideStep[];
+  coverImageId?: string;
+  authorId: number;
+  views: number;
+  likes: number;
+  createdAt: string;
+  updatedAt: string;
+  // enriched
+  author?: User;
+  isLiked?: boolean;
+}
+
+export interface GuideComment {
+  id: number;
+  guideId: number;
+  authorId: number;
+  content: string;
+  createdAt: string;
+  author?: User;
+}
+
+export type InsertGuide = Omit<Guide, 'id' | 'views' | 'likes' | 'createdAt' | 'updatedAt' | 'author' | 'isLiked'>;
+
 // ── Messaging types (not in Drizzle schema — raw Supabase) ──
 export interface Conversation {
   id: number;
@@ -82,6 +135,18 @@ export interface IStorage {
   isMember(groupId: number, userId: number): Promise<boolean>;
   likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }>;
   updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined>;
+
+  // Guides
+  getGuide(id: number, requestingUserId?: number): Promise<Guide | undefined>;
+  listGuides(filters?: { category?: string; difficulty?: string; search?: string; authorId?: number }): Promise<Guide[]>;
+  createGuide(guide: InsertGuide): Promise<Guide>;
+  updateGuide(id: number, data: Partial<Guide>): Promise<Guide | undefined>;
+  deleteGuide(id: number): Promise<void>;
+  likeGuide(guideId: number, userId: number): Promise<{ liked: boolean; likes: number }>;
+  incrementGuideViews(id: number): Promise<void>;
+  listGuideComments(guideId: number): Promise<GuideComment[]>;
+  createGuideComment(guideId: number, authorId: number, content: string): Promise<GuideComment>;
+  deleteGuideComment(commentId: number): Promise<void>;
 }
 
 // ============================================================
@@ -546,6 +611,169 @@ export class SupabaseStorage implements IStorage {
       }).eq("id", conversationId);
     }
   }
+
+  // ──────────────────────────────────────────────────────────
+  // GUIDES
+  // ──────────────────────────────────────────────────────────
+
+  private mapGuide(row: any, author?: User, isLiked?: boolean): Guide {
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      vehicleMake: row.vehicle_make,
+      vehicleModel: row.vehicle_model,
+      vehicleYearStart: row.vehicle_year_start,
+      vehicleYearEnd: row.vehicle_year_end,
+      difficulty: row.difficulty,
+      timeEstimate: row.time_estimate,
+      category: row.category,
+      tags: row.tags || [],
+      tools: row.tools || [],
+      parts: row.parts || [],
+      steps: row.steps || [],
+      coverImageId: row.cover_image_id,
+      authorId: row.author_id,
+      views: row.views || 0,
+      likes: row.likes || 0,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      author,
+      isLiked,
+    };
+  }
+
+  private mapGuideComment(row: any, author?: User): GuideComment {
+    return {
+      id: row.id,
+      guideId: row.guide_id,
+      authorId: row.author_id,
+      content: row.content,
+      createdAt: row.created_at,
+      author,
+    };
+  }
+
+  async getGuide(id: number, requestingUserId?: number): Promise<Guide | undefined> {
+    const { data } = await supabaseAdmin.from("guides").select("*").eq("id", id).single();
+    if (!data) return undefined;
+    const author = await this.getUser(data.author_id);
+    let isLiked = false;
+    if (requestingUserId) {
+      const { data: like } = await supabaseAdmin.from("guide_likes").select("guide_id").eq("guide_id", id).eq("user_id", requestingUserId).single();
+      isLiked = !!like;
+    }
+    return this.mapGuide(data, author, isLiked);
+  }
+
+  async listGuides(filters?: { category?: string; difficulty?: string; search?: string; authorId?: number }): Promise<Guide[]> {
+    let query = supabaseAdmin.from("guides").select("*").order("created_at", { ascending: false });
+    if (filters?.category) query = query.eq("category", filters.category);
+    if (filters?.difficulty) query = query.eq("difficulty", filters.difficulty);
+    if (filters?.authorId) query = query.eq("author_id", filters.authorId);
+    if (filters?.search) query = query.ilike("title", `%${filters.search}%`);
+    const { data } = await query.limit(100);
+    const rows = data || [];
+    return Promise.all(rows.map(async (row: any) => {
+      const author = await this.getUser(row.author_id);
+      return this.mapGuide(row, author);
+    }));
+  }
+
+  async createGuide(guide: InsertGuide): Promise<Guide> {
+    const { data, error } = await supabaseAdmin.from("guides").insert({
+      title: guide.title,
+      description: guide.description,
+      vehicle_make: guide.vehicleMake,
+      vehicle_model: guide.vehicleModel,
+      vehicle_year_start: guide.vehicleYearStart,
+      vehicle_year_end: guide.vehicleYearEnd,
+      difficulty: guide.difficulty,
+      time_estimate: guide.timeEstimate,
+      category: guide.category,
+      tags: guide.tags || [],
+      tools: guide.tools || [],
+      parts: guide.parts || [],
+      steps: guide.steps || [],
+      cover_image_id: guide.coverImageId,
+      author_id: guide.authorId,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    const author = await this.getUser(data.author_id);
+    return this.mapGuide(data, author, false);
+  }
+
+  async updateGuide(id: number, data: Partial<Guide>): Promise<Guide | undefined> {
+    const updates: any = {};
+    if (data.title !== undefined) updates.title = data.title;
+    if (data.description !== undefined) updates.description = data.description;
+    if (data.vehicleMake !== undefined) updates.vehicle_make = data.vehicleMake;
+    if (data.vehicleModel !== undefined) updates.vehicle_model = data.vehicleModel;
+    if (data.vehicleYearStart !== undefined) updates.vehicle_year_start = data.vehicleYearStart;
+    if (data.vehicleYearEnd !== undefined) updates.vehicle_year_end = data.vehicleYearEnd;
+    if (data.difficulty !== undefined) updates.difficulty = data.difficulty;
+    if (data.timeEstimate !== undefined) updates.time_estimate = data.timeEstimate;
+    if (data.category !== undefined) updates.category = data.category;
+    if (data.tags !== undefined) updates.tags = data.tags;
+    if (data.tools !== undefined) updates.tools = data.tools;
+    if (data.parts !== undefined) updates.parts = data.parts;
+    if (data.steps !== undefined) updates.steps = data.steps;
+    if (data.coverImageId !== undefined) updates.cover_image_id = data.coverImageId;
+    const { data: row } = await supabaseAdmin.from("guides").update(updates).eq("id", id).select().single();
+    if (!row) return undefined;
+    const author = await this.getUser(row.author_id);
+    return this.mapGuide(row, author);
+  }
+
+  async deleteGuide(id: number): Promise<void> {
+    await supabaseAdmin.from("guides").delete().eq("id", id);
+  }
+
+  async likeGuide(guideId: number, userId: number): Promise<{ liked: boolean; likes: number }> {
+    const { data: existing } = await supabaseAdmin.from("guide_likes").select("guide_id").eq("guide_id", guideId).eq("user_id", userId).single();
+    const { data: guide } = await supabaseAdmin.from("guides").select("likes").eq("id", guideId).single();
+    const currentLikes = guide?.likes || 0;
+    if (existing) {
+      await supabaseAdmin.from("guide_likes").delete().eq("guide_id", guideId).eq("user_id", userId);
+      const newLikes = Math.max(0, currentLikes - 1);
+      await supabaseAdmin.from("guides").update({ likes: newLikes }).eq("id", guideId);
+      return { liked: false, likes: newLikes };
+    } else {
+      await supabaseAdmin.from("guide_likes").insert({ guide_id: guideId, user_id: userId }).select().single().catch(() => null);
+      const newLikes = currentLikes + 1;
+      await supabaseAdmin.from("guides").update({ likes: newLikes }).eq("id", guideId);
+      return { liked: true, likes: newLikes };
+    }
+  }
+
+  async incrementGuideViews(id: number): Promise<void> {
+    const { data } = await supabaseAdmin.from("guides").select("views").eq("id", id).single();
+    if (data) await supabaseAdmin.from("guides").update({ views: (data.views || 0) + 1 }).eq("id", id);
+  }
+
+  async listGuideComments(guideId: number): Promise<GuideComment[]> {
+    const { data } = await supabaseAdmin.from("guide_comments").select("*").eq("guide_id", guideId).order("created_at", { ascending: true });
+    const rows = data || [];
+    return Promise.all(rows.map(async (row: any) => {
+      const author = await this.getUser(row.author_id);
+      return this.mapGuideComment(row, author);
+    }));
+  }
+
+  async createGuideComment(guideId: number, authorId: number, content: string): Promise<GuideComment> {
+    const { data, error } = await supabaseAdmin.from("guide_comments").insert({
+      guide_id: guideId,
+      author_id: authorId,
+      content,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    const author = await this.getUser(authorId);
+    return this.mapGuideComment(data, author);
+  }
+
+  async deleteGuideComment(commentId: number): Promise<void> {
+    await supabaseAdmin.from("guide_comments").delete().eq("id", commentId);
+  }
 }
 
 // ============================================================
@@ -722,6 +950,70 @@ export class MemStorage implements IStorage {
     this.groups.set(id, updated);
     return updated;
   }
+
+  // ── Guide stubs for MemStorage ──
+  private guides: Map<number, Guide> = new Map();
+  private guideLikes: Set<string> = new Set();
+  private guideComments: Map<number, GuideComment> = new Map();
+  private guideIdCounter = 1;
+  private guideCommentIdCounter = 1;
+
+  async getGuide(id: number, requestingUserId?: number): Promise<Guide | undefined> {
+    const g = this.guides.get(id);
+    if (!g) return undefined;
+    const isLiked = requestingUserId ? this.guideLikes.has(`${id}-${requestingUserId}`) : false;
+    return { ...g, isLiked };
+  }
+  async listGuides(filters?: { category?: string; difficulty?: string; search?: string; authorId?: number }): Promise<Guide[]> {
+    let result = Array.from(this.guides.values());
+    if (filters?.category) result = result.filter(g => g.category === filters.category);
+    if (filters?.difficulty) result = result.filter(g => g.difficulty === filters.difficulty);
+    if (filters?.authorId) result = result.filter(g => g.authorId === filters.authorId);
+    if (filters?.search) result = result.filter(g => g.title.toLowerCase().includes(filters.search!.toLowerCase()));
+    return result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }
+  async createGuide(guide: InsertGuide): Promise<Guide> {
+    const newGuide: Guide = { id: this.guideIdCounter++, views: 0, likes: 0, ...guide, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    this.guides.set(newGuide.id, newGuide);
+    return newGuide;
+  }
+  async updateGuide(id: number, data: Partial<Guide>): Promise<Guide | undefined> {
+    const g = this.guides.get(id);
+    if (!g) return undefined;
+    const updated = { ...g, ...data, updatedAt: new Date().toISOString() };
+    this.guides.set(id, updated);
+    return updated;
+  }
+  async deleteGuide(id: number): Promise<void> { this.guides.delete(id); }
+  async likeGuide(guideId: number, userId: number): Promise<{ liked: boolean; likes: number }> {
+    const key = `${guideId}-${userId}`;
+    const guide = this.guides.get(guideId);
+    const currentLikes = guide?.likes || 0;
+    if (this.guideLikes.has(key)) {
+      this.guideLikes.delete(key);
+      const newLikes = Math.max(0, currentLikes - 1);
+      if (guide) this.guides.set(guideId, { ...guide, likes: newLikes });
+      return { liked: false, likes: newLikes };
+    } else {
+      this.guideLikes.add(key);
+      const newLikes = currentLikes + 1;
+      if (guide) this.guides.set(guideId, { ...guide, likes: newLikes });
+      return { liked: true, likes: newLikes };
+    }
+  }
+  async incrementGuideViews(id: number): Promise<void> {
+    const g = this.guides.get(id);
+    if (g) this.guides.set(id, { ...g, views: (g.views || 0) + 1 });
+  }
+  async listGuideComments(guideId: number): Promise<GuideComment[]> {
+    return Array.from(this.guideComments.values()).filter(c => c.guideId === guideId).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+  async createGuideComment(guideId: number, authorId: number, content: string): Promise<GuideComment> {
+    const comment: GuideComment = { id: this.guideCommentIdCounter++, guideId, authorId, content, createdAt: new Date().toISOString() };
+    this.guideComments.set(comment.id, comment);
+    return comment;
+  }
+  async deleteGuideComment(commentId: number): Promise<void> { this.guideComments.delete(commentId); }
 
   // ── Messaging stubs for MemStorage ──
   private conversations: Map<number, Conversation> = new Map();

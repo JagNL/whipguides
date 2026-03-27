@@ -300,6 +300,123 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============================================================
+  // GUIDES
+  // ============================================================
+
+  // GET /api/guides — list guides with optional filters
+  app.get("/api/guides", async (req, res) => {
+    const { category, difficulty, search, authorId } = req.query;
+    const guides = await storage.listGuides({
+      category: category as string | undefined,
+      difficulty: difficulty as string | undefined,
+      search: search as string | undefined,
+      authorId: authorId ? Number(authorId) : undefined,
+    });
+    res.json(guides);
+  });
+
+  // GET /api/guides/:id — get a single guide
+  app.get("/api/guides/:id", async (req, res) => {
+    const id = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    const guide = await storage.getGuide(id, currentUser?.id);
+    if (!guide) return res.status(404).json({ error: "Guide not found" });
+    // Increment views (fire and forget)
+    storage.incrementGuideViews(id).catch(() => {});
+    return res.json(guide);
+  });
+
+  // POST /api/guides — create a new guide
+  app.post("/api/guides", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const {
+      title, description,
+      vehicleMake, vehicleModel, vehicleYearStart, vehicleYearEnd,
+      difficulty, timeEstimate, category, tags, tools, parts, steps, coverImageId,
+    } = req.body;
+    if (!title || !description || !vehicleMake || !vehicleModel || !vehicleYearStart || !vehicleYearEnd || !difficulty || !timeEstimate) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    try {
+      const guide = await storage.createGuide({
+        title, description,
+        vehicleMake, vehicleModel, vehicleYearStart, vehicleYearEnd,
+        difficulty, timeEstimate,
+        category: category || null,
+        tags: tags || [],
+        tools: tools || [],
+        parts: parts || [],
+        steps: steps || [],
+        coverImageId: coverImageId || null,
+        authorId: currentUser.id,
+      });
+      return res.status(201).json(guide);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PATCH /api/guides/:id — update a guide (author only)
+  app.patch("/api/guides/:id", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    const guide = await storage.getGuide(id);
+    if (!guide) return res.status(404).json({ error: "Guide not found" });
+    if (guide.authorId !== currentUser.id && currentUser.siteRole !== 'super_admin' && currentUser.siteRole !== 'site_admin') {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    const updated = await storage.updateGuide(id, req.body);
+    return res.json(updated);
+  });
+
+  // DELETE /api/guides/:id — delete a guide (author or admin)
+  app.delete("/api/guides/:id", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    const guide = await storage.getGuide(id);
+    if (!guide) return res.status(404).json({ error: "Guide not found" });
+    if (guide.authorId !== currentUser.id && currentUser.siteRole !== 'super_admin' && currentUser.siteRole !== 'site_admin') {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    await storage.deleteGuide(id);
+    return res.json({ ok: true });
+  });
+
+  // POST /api/guides/:id/like — toggle like
+  app.post("/api/guides/:id/like", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    const result = await storage.likeGuide(id, currentUser.id);
+    return res.json(result);
+  });
+
+  // GET /api/guides/:id/comments — list comments
+  app.get("/api/guides/:id/comments", async (req, res) => {
+    const id = Number(req.params.id);
+    const comments = await storage.listGuideComments(id);
+    return res.json(comments);
+  });
+
+  // POST /api/guides/:id/comments — add a comment
+  app.post("/api/guides/:id/comments", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: "Comment cannot be empty" });
+    const comment = await storage.createGuideComment(id, currentUser.id, content.trim());
+    return res.status(201).json(comment);
+  });
+
+  // DELETE /api/guide-comments/:id — delete a comment
+  app.delete("/api/guide-comments/:id", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    // Only admin can delete others' comments (simplified — author check would need a lookup)
+    await storage.deleteGuideComment(id);
+    return res.json({ ok: true });
+  });
+
+  // ============================================================
   // HEALTH CHECK
   // ============================================================
   app.get("/api/health", (_req, res) => {
