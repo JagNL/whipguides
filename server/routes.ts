@@ -303,19 +303,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!group) return res.status(404).json({ error: "Group not found" });
 
     if (group.private) {
-      // Private group — create a join request
-      await (storage as any).requestJoinGroup(groupId, currentUser.id, req.body.message);
+      // Private group — create a join request with answers + risk scoring
+      const { message, answers = [] } = req.body;
+
+      // ── Risk scoring ─────────────────────────────────────
+      // Low score = trustworthy, high score = suspicious
+      let riskScore = 0;
+      const riskFlags: string[] = [];
+
+      // Account age (new accounts are higher risk)
+      const accountCreated = new Date((currentUser as any).createdAt || Date.now());
+      const ageDays = Math.floor((Date.now() - accountCreated.getTime()) / 86400000);
+      if (ageDays < 1)  { riskScore += 40; riskFlags.push("account_less_than_1_day"); }
+      else if (ageDays < 7)  { riskScore += 20; riskFlags.push("account_less_than_7_days"); }
+      else if (ageDays < 30) { riskScore += 10; riskFlags.push("account_less_than_30_days"); }
+
+      // No profile completeness
+      if (!currentUser.avatar)      { riskScore += 5; riskFlags.push("no_avatar"); }
+      if (!currentUser.bio)         { riskScore += 3; riskFlags.push("no_bio"); }
+      if (!currentUser.location)    { riskScore += 2; riskFlags.push("no_location"); }
+      if (!currentUser.displayName) { riskScore += 5; riskFlags.push("no_display_name"); }
+
+      // Activity signals (more activity = more trustworthy)
+      const { count: listingCount } = await supabaseAdminForRoutes
+        .from("listings").select("id", { count: "exact", head: true }).eq("seller_id", currentUser.id);
+      const { count: postCount } = await supabaseAdminForRoutes
+        .from("posts").select("id", { count: "exact", head: true }).eq("author_id", currentUser.id);
+      if ((listingCount || 0) > 0 || (postCount || 0) > 0) riskScore = Math.max(0, riskScore - 15);
+
+      // Phone verified = trusted
+      if ((currentUser as any).phoneVerified) { riskScore = Math.max(0, riskScore - 20); }
+
+      // Empty answers on required questions
+      const { data: questions } = await supabaseAdminForRoutes
+        .from("group_questions").select("id, required").eq("group_id", groupId);
+      const requiredIds = (questions || []).filter((q: any) => q.required).map((q: any) => q.id);
+      const answeredIds = answers.filter((a: any) => a.answer?.trim()).map((a: any) => a.questionId);
+      const missingRequired = requiredIds.filter((id: number) => !answeredIds.includes(id));
+      if (missingRequired.length > 0) {
+        return res.status(400).json({ error: "Please answer all required questions" });
+      }
+
+      await (storage as any).requestJoinGroup(groupId, currentUser.id, message);
+
+      // Store answers + risk score on the join request row
+      if (answers.length > 0 || riskScore > 0) {
+        await supabaseAdminForRoutes.from("group_join_requests")
+          .update({ answers: JSON.stringify(answers), risk_score: riskScore, risk_flags: JSON.stringify(riskFlags) })
+          .eq("group_id", groupId).eq("user_id", currentUser.id);
+      }
+
       // Notify owner
       (storage as any).createNotification({
         userId: group.ownerId,
         type: "join_request",
         title: `${currentUser.displayName} requested to join ${group.name}`,
-        body: req.body.message || null,
+        body: message || null,
         linkType: "group",
         linkId: groupId,
         actorId: currentUser.id,
       }).catch(() => {});
-      return res.json({ requested: true });
+      return res.json({ requested: true, riskScore });
     }
 
     // Public group — instant join
@@ -339,6 +387,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     await storage.leaveGroup(Number(req.params.id), currentUser.id);
     return res.json({ success: true });
   });
+
+  // ── Group membership questions ─────────────────────────────
+
+  // GET /api/groups/:id/questions — public (anyone can see questions before joining)
+  app.get("/api/groups/:id/questions", async (req, res) => {
+    const { data } = await supabaseAdminForRoutes
+      .from("group_questions")
+      .select("id, question, required, sort_order")
+      .eq("group_id", Number(req.params.id))
+      .order("sort_order", { ascending: true });
+    return res.json(data || []);
+  });
+
+  // PUT /api/groups/:id/questions — replace all questions (owner only)
+  app.put("/api/groups/:id/questions", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    if (group.ownerId !== currentUser.id && (currentUser as any).siteRole !== 'super_admin') {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    const questions: { question: string; required?: boolean }[] = req.body.questions || [];
+    if (questions.length > 5) return res.status(400).json({ error: "Maximum 5 questions allowed" });
+
+    // Delete existing and re-insert
+    await supabaseAdminForRoutes.from("group_questions").delete().eq("group_id", groupId);
+    if (questions.length > 0) {
+      await supabaseAdminForRoutes.from("group_questions").insert(
+        questions.map((q, i) => ({
+          group_id: groupId,
+          question: q.question.trim(),
+          required: q.required !== false,
+          sort_order: i,
+        }))
+      );
+    }
+    return res.json({ success: true });
+  });
+
+  // Enhanced join: accepts question answers + computes risk score
+  // Override the existing POST /api/groups/:id/join above with a smarter version
+  // (existing route stays — this adds answer handling on top)
 
   // Cancel a pending join request
   app.delete("/api/groups/:id/join-request", requireAuth, async (req, res) => {

@@ -608,8 +608,103 @@ function GroupSearchPanel({ groupId }: { groupId: number }) {
 }
 
 // ─── Join Requests Panel (owner only) ────────────────────────────
+// ─── Join Request Form (with membership questions) ────────────
+function JoinRequestForm({ groupId, groupName, onSubmit, onCancel, isPending }: {
+  groupId: number;
+  groupName: string;
+  onSubmit: (message: string, answers: any[]) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [message, setMessage] = useState("");
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+
+  const { data: questions = [] } = useQuery<any[]>({
+    queryKey: ["/api/groups", groupId, "questions"],
+    queryFn: () => apiRequest("GET", `/api/groups/${groupId}/questions`).then(r => r.json()),
+  });
+
+  const handleSubmit = () => {
+    const answersArr = questions.map((q: any) => ({
+      questionId: q.id,
+      question: q.question,
+      answer: answers[q.id] || "",
+    }));
+    onSubmit(message.trim(), answersArr);
+  };
+
+  const allRequiredAnswered = questions
+    .filter((q: any) => q.required)
+    .every((q: any) => answers[q.id]?.trim());
+
+  return (
+    <div className="bg-card border border-primary/30 rounded-xl p-5 mb-5 space-y-4">
+      <h3 className="font-semibold text-sm flex items-center gap-2">
+        <Lock className="w-4 h-4 text-primary" /> Request to Join {groupName}
+      </h3>
+      <p className="text-sm text-muted-foreground">
+        This is a private group. The owner will review your request.
+        {questions.length > 0 && " Please answer the questions below."}
+      </p>
+
+      {/* Membership questions */}
+      {questions.map((q: any) => (
+        <div key={q.id} className="space-y-1.5">
+          <label className="text-xs font-medium">
+            {q.question}
+            {q.required && <span className="text-destructive ml-0.5">*</span>}
+          </label>
+          <textarea
+            className="w-full bg-secondary border border-border rounded-lg p-2.5 text-sm resize-none outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
+            rows={2}
+            placeholder="Your answer..."
+            value={answers[q.id] || ""}
+            onChange={e => setAnswers(a => ({ ...a, [q.id]: e.target.value }))}
+          />
+        </div>
+      ))}
+
+      {/* Optional intro message */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">
+          Intro message <span className="font-normal">(optional)</span>
+        </label>
+        <textarea
+          data-testid="textarea-join-message"
+          className="w-full bg-secondary border border-border rounded-lg p-2.5 text-sm resize-none outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
+          rows={2}
+          placeholder="Introduce yourself to the group owner..."
+          value={message}
+          onChange={e => setMessage(e.target.value)}
+        />
+      </div>
+
+      <div className="flex gap-2 justify-end">
+        <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+        <Button
+          size="sm"
+          onClick={handleSubmit}
+          disabled={isPending || !allRequiredAnswered}
+          data-testid="button-submit-join-request"
+          className="gap-1.5"
+        >
+          {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+          Send Request
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function RiskBadge({ score, flags }: { score: number; flags: string[] }) {
+  if (score === 0) return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 font-semibold">Low risk</span>;
+  if (score < 20) return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 font-semibold">Moderate</span>;
+  return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive font-semibold" title={flags.join(", ")}>High risk</span>;
+}
+
 function JoinRequestsPanel({ groupId }: { groupId: number }) {
   const { toast } = useToast();
+  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const { data: requests = [], isLoading, refetch } = useQuery<any[]>({
     queryKey: ["/api/groups", groupId, "join-requests"],
@@ -647,41 +742,73 @@ function JoinRequestsPanel({ groupId }: { groupId: number }) {
         <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">{requests.length}</span>
       </h3>
       <div className="space-y-2">
-        {requests.map((req: any) => (
-          <div key={req.id} className="flex items-center gap-2 p-2 bg-secondary rounded-lg">
-            <Avatar className="w-7 h-7 shrink-0">
-              <AvatarImage src={req.user?.avatar} />
-              <AvatarFallback className="text-xs bg-primary/20 text-primary">
-                {req.user?.displayName?.[0]?.toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold truncate">{req.user?.displayName}</p>
-              <p className="text-[10px] text-muted-foreground">@{req.user?.username}</p>
-              {req.message && <p className="text-[10px] text-muted-foreground italic truncate mt-0.5">"{req.message}"</p>}
+        {requests.map((req: any) => {
+          const isExpanded = expandedId === req.id;
+          const answers: any[] = req.answers || [];
+          const riskFlags: string[] = req.riskFlags || [];
+          const accountAgeDays = req.user?.createdAt
+            ? Math.floor((Date.now() - new Date(req.user.createdAt).getTime()) / 86400000)
+            : null;
+          return (
+            <div key={req.id} className="bg-secondary rounded-xl overflow-hidden">
+              <div className="flex items-center gap-2 p-2.5">
+                <Avatar className="w-8 h-8 shrink-0">
+                  <AvatarImage src={req.user?.avatar} />
+                  <AvatarFallback className="text-xs bg-primary/20 text-primary">
+                    {req.user?.displayName?.[0]?.toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-xs font-semibold truncate">{req.user?.displayName || req.user?.username}</p>
+                    <RiskBadge score={req.riskScore || 0} flags={riskFlags} />
+                    {req.user?.phoneVerified && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-semibold">📱 Verified</span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    @{req.user?.username}
+                    {accountAgeDays !== null && <> · account {accountAgeDays < 1 ? "<1 day" : `${accountAgeDays}d`} old</>}
+                    {req.user?.location && <> · {req.user.location}</>}
+                  </p>
+                </div>
+                <div className="flex gap-1 shrink-0 items-center">
+                  {(answers.length > 0 || req.message) && (
+                    <button onClick={() => setExpandedId(isExpanded ? null : req.id)}
+                      className="w-6 h-6 rounded-full bg-muted/60 text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors text-xs"
+                      title="View details">{isExpanded ? "−" : "+"}</button>
+                  )}
+                  <button onClick={() => approveMutation.mutate(req.userId)} disabled={approveMutation.isPending}
+                    className="w-7 h-7 rounded-full bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/30 flex items-center justify-center transition-colors"
+                    title="Approve" data-testid={`button-approve-${req.userId}`}>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => denyMutation.mutate(req.userId)} disabled={denyMutation.isPending}
+                    className="w-7 h-7 rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/30 flex items-center justify-center transition-colors"
+                    title="Deny" data-testid={`button-deny-${req.userId}`}>
+                    <XCircle className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              {isExpanded && (
+                <div className="px-3 pb-3 space-y-2 border-t border-border pt-2">
+                  {riskFlags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {riskFlags.map(f => (
+                        <span key={f} className="text-[9px] bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">{f.replace(/_/g, " ")}</span>
+                      ))}
+                    </div>
+                  )}
+                  {req.message && <div><p className="text-[10px] text-muted-foreground font-medium mb-0.5">Intro message:</p><p className="text-xs italic">"{req.message}"</p></div>}
+                  {answers.map((a: any, i: number) => (
+                    <div key={i}><p className="text-[10px] text-muted-foreground font-medium mb-0.5">Q: {a.question}</p><p className="text-xs">{a.answer || <span className="text-muted-foreground/60 italic">No answer</span>}</p></div>
+                  ))}
+                  {req.user?.bio && <div><p className="text-[10px] text-muted-foreground font-medium mb-0.5">Bio:</p><p className="text-xs text-muted-foreground">{req.user.bio}</p></div>}
+                </div>
+              )}
             </div>
-            <div className="flex gap-1 shrink-0">
-              <button
-                onClick={() => approveMutation.mutate(req.userId)}
-                disabled={approveMutation.isPending}
-                className="w-6 h-6 rounded-full bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/30 flex items-center justify-center transition-colors"
-                title="Approve"
-                data-testid={`button-approve-${req.userId}`}
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => denyMutation.mutate(req.userId)}
-                disabled={denyMutation.isPending}
-                className="w-6 h-6 rounded-full bg-red-500/15 text-red-400 hover:bg-red-500/30 flex items-center justify-center transition-colors"
-                title="Deny"
-                data-testid={`button-deny-${req.userId}`}
-              >
-                <XCircle className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -722,8 +849,10 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const requestStatus = requestData?.status ?? 'none';
 
   const joinMutation = useMutation({
-    mutationFn: (message?: string) =>
-      apiRequest("POST", `/api/groups/${id}/join`, { message }).then(r => r.json()),
+    mutationFn: (payload?: string | { message?: string; answers?: any[] }) => {
+      const body = typeof payload === "string" ? { message: payload } : (payload || {});
+      return apiRequest("POST", `/api/groups/${id}/join`, body).then(r => r.json());
+    },
     onSuccess: (data) => {
       if (data.requested) {
         toast({ title: "Request sent!", description: "The group owner will review your request." });
@@ -869,35 +998,13 @@ export default function GroupDetailPage({ id }: { id: number }) {
 
       {/* Request to join form (private groups) */}
       {showRequestForm && group.private && !isMember && (
-        <div className="bg-card border border-primary/30 rounded-xl p-5 mb-5">
-          <h3 className="font-semibold text-sm mb-3 flex items-center gap-2">
-            <Lock className="w-4 h-4 text-primary" /> Request to Join {group.name}
-          </h3>
-          <p className="text-sm text-muted-foreground mb-3">
-            This is a private group. The owner will review your request.
-          </p>
-          <textarea
-            data-testid="textarea-join-message"
-            className="w-full bg-secondary border border-border rounded-lg p-3 text-sm resize-none outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground mb-3"
-            rows={3}
-            placeholder="Add a note to the group owner (optional)..."
-            value={requestMessage}
-            onChange={e => setRequestMessage(e.target.value)}
-          />
-          <div className="flex gap-2 justify-end">
-            <Button variant="ghost" size="sm" onClick={() => setShowRequestForm(false)}>Cancel</Button>
-            <Button
-              size="sm"
-              onClick={handleSubmitRequest}
-              disabled={joinMutation.isPending}
-              data-testid="button-submit-join-request"
-              className="gap-1.5"
-            >
-              {joinMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
-              Send Request
-            </Button>
-          </div>
-        </div>
+        <JoinRequestForm
+          groupId={id}
+          groupName={group.name}
+          onSubmit={(message, answers) => joinMutation.mutate({ message, answers } as any)}
+          onCancel={() => setShowRequestForm(false)}
+          isPending={joinMutation.isPending}
+        />
       )}
 
       {/* Two-column layout: feed + sidebar */}

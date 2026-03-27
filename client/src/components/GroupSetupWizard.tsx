@@ -16,14 +16,15 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ChevronRight, ChevronLeft, CheckCircle2, Image, Shield,
   UserPlus, Rocket, Trash2, Plus, Users, Copy, X, Search,
-} from "lucide-react";
+  HelpCircle } from "lucide-react";
 
 // ── Step config ───────────────────────────────────────────
 const STEPS = [
-  { id: "visuals",  label: "Visuals",   icon: Image },
-  { id: "rules",    label: "Rules",     icon: Shield },
-  { id: "invite",   label: "Invite",    icon: UserPlus },
-  { id: "launch",   label: "Launch",    icon: Rocket },
+  { id: "visuals",   label: "Visuals",   icon: Image },
+  { id: "rules",     label: "Rules",     icon: Shield },
+  { id: "questions", label: "Questions", icon: HelpCircle },
+  { id: "invite",    label: "Invite",    icon: UserPlus },
+  { id: "launch",    label: "Launch",    icon: Rocket },
 ];
 
 const DEFAULT_RULES = [
@@ -314,6 +315,93 @@ function InviteStep({
   );
 }
 
+// ── Step 3: Questions ────────────────────────────────────
+function QuestionsStep({
+  groupId, isPrivate,
+  questions,
+  onChange,
+}: {
+  groupId: number;
+  isPrivate: boolean;
+  questions: { question: string; required: boolean }[];
+  onChange: (q: { question: string; required: boolean }[]) => void;
+}) {
+  const add = () => onChange([...questions, { question: "", required: true }]);
+  const remove = (i: number) => onChange(questions.filter((_, idx) => idx !== i));
+  const update = (i: number, field: string, value: any) => {
+    const next = [...questions];
+    (next[i] as any)[field] = value;
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <h3 className="font-semibold text-sm">Membership Questions</h3>
+        <p className="text-xs text-muted-foreground">
+          {isPrivate
+            ? "Ask up to 5 questions that applicants must answer when requesting to join. Great for filtering bots and keeping your community quality high."
+            : "Add optional questions for people joining your group. These help you understand your members better."}
+        </p>
+      </div>
+
+      {questions.length === 0 ? (
+        <div className="border border-dashed border-border rounded-xl p-6 text-center space-y-2">
+          <HelpCircle className="w-8 h-8 mx-auto text-muted-foreground opacity-40" />
+          <p className="text-sm text-muted-foreground">No questions yet. Add one to screen applicants.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {questions.map((q, i) => (
+            <div key={i} className="bg-secondary rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-muted-foreground">Question {i + 1}</span>
+                <button onClick={() => remove(i)} className="text-muted-foreground hover:text-destructive transition-colors">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <input
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
+                placeholder="e.g. What's your main vehicle? How long have you been into 3D printing?"
+                value={q.question}
+                onChange={e => update(i, "question", e.target.value)}
+                maxLength={200}
+              />
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={q.required}
+                  onChange={e => update(i, "required", e.target.checked)}
+                  className="w-3.5 h-3.5 accent-primary"
+                />
+                <span className="text-xs text-muted-foreground">Required</span>
+              </label>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {questions.length < 5 && (
+        <button
+          onClick={add}
+          className="w-full border border-dashed border-primary/40 hover:border-primary rounded-xl py-2.5 text-sm text-primary hover:bg-primary/5 transition-all flex items-center justify-center gap-1.5"
+        >
+          <Plus className="w-4 h-4" /> Add question
+        </button>
+      )}
+
+      <div className="bg-muted/30 rounded-xl p-3 text-xs text-muted-foreground space-y-1">
+        <p className="font-medium text-foreground">Tips for good screening questions:</p>
+        <ul className="list-disc list-inside space-y-0.5 ml-1">
+          <li>Ask about their experience or interest level</li>
+          <li>Ask what they hope to contribute to the group</li>
+          <li>Ask them to agree to a specific rule ("Do you agree to...")</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 // ── Step 4: Launch ───────────────────────────────────────
 function LaunchStep({ group, coverImageId, avatarId, rulesCount, invitedCount }: {
   group: any; coverImageId: string; avatarId: string; rulesCount: number; invitedCount: number;
@@ -402,6 +490,7 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
   const [coverImageId, setCoverImageId] = useState("");
   const [avatarId, setAvatarId] = useState("");
   const [rules, setRules] = useState(DEFAULT_RULES.map(r => ({ ...r })));
+  const [questions, setQuestions] = useState<{ question: string; required: boolean }[]>([]);
   const [invited, setInvited] = useState<any[]>([]);
 
   const setupMutation = useMutation({
@@ -410,7 +499,15 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
         avatar: avatarId || undefined,
         coverImage: coverImageId || undefined,
         rules: rules.filter(r => r.title.trim()),
-      }).then(r => r.json()),
+      }).then(async r => {
+        const data = await r.json();
+        // Save questions separately
+        const validQuestions = questions.filter(q => q.question.trim());
+        if (validQuestions.length > 0) {
+          await apiRequest("PUT", `/api/groups/${group.id}/questions`, { questions: validQuestions });
+        }
+        return data;
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups", group.id] });
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
@@ -496,6 +593,14 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
               <RulesStep rules={rules} onChange={setRules} />
             )}
             {step === 2 && (
+              <QuestionsStep
+                groupId={group.id}
+                isPrivate={!!(group as any).private}
+                questions={questions}
+                onChange={setQuestions}
+              />
+            )}
+            {step === 3 && (
               <InviteStep
                 groupId={group.id}
                 groupName={group.name}
@@ -504,7 +609,7 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
                 onRemove={id => setInvited(prev => prev.filter(u => u.id !== id))}
               />
             )}
-            {step === 3 && (
+            {step === 4 && (
               <LaunchStep
                 group={group}
                 coverImageId={coverImageId}

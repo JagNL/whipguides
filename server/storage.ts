@@ -281,7 +281,8 @@ export class SupabaseStorage implements IStorage {
       memberCount: row.member_count,
       postCount: row.post_count,
       ownerId: row.owner_id,
-      private: row.private,
+      private: row.is_private ?? row.private ?? false,
+      avatar: row.avatar || null,
       createdAt: row.created_at,
     };
   }
@@ -451,7 +452,7 @@ export class SupabaseStorage implements IStorage {
       category: group.category,
       cover_image: group.coverImage,
       owner_id: group.ownerId,
-      private: group.private || false,
+      is_private: group.private || false,
     }).select().single();
     if (error) throw new Error(error.message);
     // Auto-add owner as a member
@@ -465,9 +466,11 @@ export class SupabaseStorage implements IStorage {
 
   async updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined> {
     const updates: any = {};
-    if (data.name)        updates.name = data.name;
-    if (data.description) updates.description = data.description;
-    if (data.coverImage)  updates.cover_image = data.coverImage;
+    if (data.name !== undefined)        updates.name = data.name;
+    if (data.description !== undefined) updates.description = data.description;
+    if (data.coverImage !== undefined)  updates.cover_image = data.coverImage;
+    if (data.private !== undefined)     updates.is_private = data.private;
+    if ((data as any).avatar !== undefined) updates.avatar = (data as any).avatar;
     const { data: row } = await supabaseAdmin.from("groups").update(updates).eq("id", id).select().single();
     return row ? this.mapGroup(row) : undefined;
   }
@@ -792,17 +795,33 @@ export class SupabaseStorage implements IStorage {
   }
 
   async listPendingJoinRequests(groupId: number): Promise<any[]> {
-    const { data } = await supabaseAdmin.from("group_join_requests").select("*").eq("group_id", groupId).eq("status", 'pending').order("created_at", { ascending: true });
+    const { data } = await supabaseAdmin.from("group_join_requests")
+      .select("*, user:user_id(id,username,display_name,avatar,bio,location,verified,created_at,phone_verified)")
+      .eq("group_id", groupId).eq("status", 'pending').order("risk_score", { ascending: false }).order("created_at", { ascending: true });
     const rows = data || [];
-    return Promise.all(rows.map(async (row: any) => ({
+    return rows.map((row: any) => ({
       id: row.id,
       groupId: row.group_id,
       userId: row.user_id,
       status: row.status,
       message: row.message,
+      answers: row.answers || [],
+      riskScore: row.risk_score || 0,
+      riskFlags: row.risk_flags || [],
+      phoneVerified: row.phone_verified || false,
       createdAt: row.created_at,
-      user: await this.getUser(row.user_id),
-    })));
+      user: row.user ? {
+        id: row.user.id,
+        username: row.user.username,
+        displayName: row.user.display_name,
+        avatar: row.user.avatar,
+        bio: row.user.bio,
+        location: row.user.location,
+        verified: row.user.verified,
+        createdAt: row.user.created_at,
+        phoneVerified: row.user.phone_verified,
+      } : null,
+    }));
   }
 
   // ──────────────────────────────────────────────────────────
