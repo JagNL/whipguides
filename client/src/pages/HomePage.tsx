@@ -26,7 +26,19 @@ function getSessionId(): string {
   return _sessionId;
 }
 
-const CATEGORIES = ["All", "Cars", "Trucks", "ATVs", "Jet Skis", "Motorcycles", "Boats", "Snowmobiles", "UTVs", "Dirt Bikes", "Firearms", "Antiques"];
+const CATEGORIES = [
+  "All",
+  // Vehicles
+  "Cars", "Trucks", "SUVs & Crossovers", "Motorcycles", "ATVs",
+  "UTVs / Side-by-Sides", "Dirt Bikes", "Jet Skis / PWC", "Boats",
+  "Snowmobiles", "RVs & Campers", "Classic & Antique Vehicles",
+  // Parts
+  "Parts & Accessories", "Engine & Drivetrain", "Body & Exterior",
+  "Wheels & Tires", "Performance Parts",
+  // General
+  "Furniture & Home", "Electronics & Gadgets", "Collectibles & Antiques",
+  "Firearms & Hunting", "Sporting Goods", "Tools & Equipment", "Other",
+];
 const CONDITIONS = ["Any", "New", "Like New", "Excellent", "Good", "Fair"];
 const SORT_OPTIONS = [
   { value: "default", label: "Featured First" },

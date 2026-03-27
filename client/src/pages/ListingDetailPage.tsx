@@ -166,16 +166,28 @@ export default function ListingDetailPage({ id }: { id: number }) {
 
           {/* Specs grid */}
           <div className="bg-card rounded-xl border border-border p-5">
-            <h2 className="font-bold text-lg mb-4">Specs</h2>
+            <h2 className="font-bold text-lg mb-4">Details</h2>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {[
-                { icon: Calendar, label: "Year", value: listing.year },
-                { icon: Hash, label: "Make", value: listing.make },
-                { icon: Hash, label: "Model", value: listing.model },
-                { icon: Gauge, label: listing.category === "Jet Skis" ? "Hours" : "Miles", value: listing.mileage?.toLocaleString() },
+                // Vehicle fields
+                ...(listing.listingType !== 'general' ? [
+                  { icon: Calendar, label: "Year", value: listing.year },
+                  { icon: Hash, label: "Make", value: listing.make },
+                  { icon: Hash, label: "Model", value: listing.model },
+                ] : []),
+                // Mileage for vehicles only
+                ...(listing.listingType === 'vehicle' || !listing.listingType ? [
+                  { icon: Gauge, label: listing.category?.includes("Jet Ski") || listing.category?.includes("Boat") ? "Hours" : "Mileage", value: listing.mileage ? listing.mileage.toLocaleString() + (listing.category?.includes("Jet Ski") || listing.category?.includes("Boat") ? " hrs" : " mi") : undefined },
+                ] : []),
+                // Parts fitment
+                ...(listing.listingType === 'parts' ? [
+                  { icon: Hash, label: "Fits", value: [listing.fitsYearMin && listing.fitsYearMax ? `${listing.fitsYearMin}–${listing.fitsYearMax}` : (listing.fitsYearMin || listing.fitsYearMax), listing.fitsMake, listing.fitsModel].filter(Boolean).join(" ") || undefined },
+                  { icon: Hash, label: "Part #", value: listing.partNumber },
+                ] : []),
+                // Universal
                 { icon: CheckCircle2, label: "Condition", value: listing.condition },
                 { icon: MapPin, label: "Location", value: listing.location },
-              ].filter(s => s.value).map(({ icon: Icon, label, value }) => (
+              ].filter((s: any) => s.value).map(({ icon: Icon, label, value }: any) => (
                 <div key={label} className="bg-secondary rounded-lg p-3">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
                     <Icon className="w-3.5 h-3.5" /> {label}

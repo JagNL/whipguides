@@ -261,7 +261,14 @@ export class SupabaseStorage implements IStorage {
       saves: row.saves,
       createdAt: row.created_at,
       featured: row.featured,
-    };
+      // Extended fields
+      listingType: row.listing_type || 'vehicle',
+      fitsMake: row.fits_make,
+      fitsModel: row.fits_model,
+      fitsYearMin: row.fits_year_min,
+      fitsYearMax: row.fits_year_max,
+      partNumber: row.part_number,
+    } as any;
   }
 
   private mapGroup(row: any): Group {
@@ -369,6 +376,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async createListing(listing: InsertListing): Promise<Listing> {
+    const l = listing as any;
     const { data, error } = await supabaseAdmin.from("listings").insert({
       title: listing.title,
       description: listing.description,
@@ -384,6 +392,12 @@ export class SupabaseStorage implements IStorage {
       seller_id: listing.sellerId,
       status: listing.status || "active",
       featured: listing.featured || false,
+      listing_type: l.listingType || 'vehicle',
+      fits_make: l.fitsMake || null,
+      fits_model: l.fitsModel || null,
+      fits_year_min: l.fitsYearMin || null,
+      fits_year_max: l.fitsYearMax || null,
+      part_number: l.partNumber || null,
     }).select().single();
     if (error) throw new Error(error.message);
     return this.mapListing(data);
@@ -1074,7 +1088,7 @@ export class SupabaseStorage implements IStorage {
     };
   }
 
-  async searchListings(query: string, filters?: { category?: string; minPrice?: number; maxPrice?: number; condition?: string; location?: string; sort?: string; minYear?: number; maxYear?: number; make?: string; model?: string; minMileage?: number; maxMileage?: number }) {
+  async searchListings(query: string, filters?: { category?: string; minPrice?: number; maxPrice?: number; condition?: string; location?: string; sort?: string; minYear?: number; maxYear?: number; make?: string; model?: string; minMileage?: number; maxMileage?: number; listingType?: string; fitsMake?: string; fitsModel?: string }) {
     const q = `%${query}%`;
     let qb = supabaseAdmin.from("listings").select("*").eq("status", "active");
     if (query) qb = qb.or(`title.ilike.${q},description.ilike.${q},make.ilike.${q},model.ilike.${q},location.ilike.${q}`);
@@ -1089,6 +1103,9 @@ export class SupabaseStorage implements IStorage {
     if (filters?.maxYear !== undefined) qb = qb.lte("year", filters.maxYear);
     if (filters?.minMileage !== undefined) qb = qb.gte("mileage", filters.minMileage);
     if (filters?.maxMileage !== undefined) qb = qb.lte("mileage", filters.maxMileage);
+    if (filters?.listingType) qb = qb.eq("listing_type", filters.listingType);
+    if (filters?.fitsMake) qb = qb.ilike("fits_make", `%${filters.fitsMake}%`);
+    if (filters?.fitsModel) qb = qb.ilike("fits_model", `%${filters.fitsModel}%`);
     if (filters?.sort === "price_asc") qb = qb.order("price", { ascending: true });
     else if (filters?.sort === "price_desc") qb = qb.order("price", { ascending: false });
     else if (filters?.sort === "newest") qb = qb.order("created_at", { ascending: false });
