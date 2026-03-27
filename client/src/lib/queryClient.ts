@@ -13,7 +13,14 @@ function getToken(): string | null {
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    // Try to extract a friendly message from JSON error responses
+    try {
+      const json = JSON.parse(text);
+      if (json.error) throw new Error(json.error);
+    } catch (e) {
+      if ((e as Error).message !== text) throw e; // rethrow parsed error
+    }
+    throw new Error(text);
   }
 }
 

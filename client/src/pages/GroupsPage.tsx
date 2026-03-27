@@ -257,7 +257,10 @@ export default function GroupsPage() {
       toast({ title: "Group created!", description: `${group.name} is now live.` });
       navigate(`/groups/${group.id}`);
     },
-    onError: () => toast({ title: "Error", description: "Could not create group.", variant: "destructive" }),
+    onError: (err: any) => {
+      const message = err?.message || "Could not create group. Please try again.";
+      toast({ title: "Couldn't create group", description: message, variant: "destructive" });
+    },
   });
 
   const handleCreate = () => {

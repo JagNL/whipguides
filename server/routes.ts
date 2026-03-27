@@ -201,15 +201,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // POST /api/groups — create a group
   app.post("/api/groups", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
-    if (!currentUser) return res.status(401).json({ error: "Must be logged in to create a group" });
+    if (!currentUser) return res.status(401).json({ error: "You need to be signed in to create a group." });
+
+    const { name, description, category } = req.body;
+
+    // Friendly validation
+    if (!name?.trim()) return res.status(400).json({ error: "Please enter a name for your group." });
+    if (name.trim().length < 3) return res.status(400).json({ error: "Group name must be at least 3 characters." });
+    if (name.trim().length > 60) return res.status(400).json({ error: "Group name can't be longer than 60 characters." });
+    if (!description?.trim()) return res.status(400).json({ error: "Please add a description so people know what your group is about." });
+    if (!category?.trim()) return res.status(400).json({ error: "Please select a category for your group." });
+
+    // Check for duplicate name (case-insensitive)
+    const existing = await storage.listGroups();
+    const nameTaken = existing.some(g => g.name.toLowerCase() === name.trim().toLowerCase());
+    if (nameTaken) return res.status(400).json({ error: `A group called "${name.trim()}" already exists. Try a different name.` });
+
     try {
       const group = await storage.createGroup({
-        ...req.body,
+        name: name.trim(),
+        description: description.trim(),
+        category: category.trim(),
+        coverImage: req.body.coverImage || null,
+        private: req.body.private || false,
         ownerId: currentUser.id,
       });
       return res.status(201).json(group);
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      console.error("Create group error:", err.message);
+      // Translate cryptic Supabase errors into friendly messages
+      const msg = err.message || "";
+      if (msg.includes("duplicate") || msg.includes("unique")) {
+        return res.status(400).json({ error: `A group with that name already exists. Try a different name.` });
+      }
+      if (msg.includes("foreign key") || msg.includes("violates")) {
+        return res.status(400).json({ error: "Something went wrong linking your account. Please try again." });
+      }
+      return res.status(400).json({ error: "Couldn't create the group. Please try again in a moment." });
     }
   });
 
