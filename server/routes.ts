@@ -436,6 +436,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============================================================
+  // SEARCH
+  // ============================================================
+
+  // GET /api/search?q=... — global search across all entities
+  app.get("/api/search", async (req, res) => {
+    const q = (req.query.q as string || "").trim();
+    if (!q || q.length < 2) return res.json({ listings: [], groups: [], guides: [], users: [], posts: [] });
+    const results = await (storage as any).searchAll(q);
+    return res.json(results);
+  });
+
+  // GET /api/search/listings — marketplace search with full filters
+  app.get("/api/search/listings", async (req, res) => {
+    const { q = "", category, condition, location, minPrice, maxPrice, sort } = req.query;
+    const results = await (storage as any).searchListings(q as string, {
+      category: category as string | undefined,
+      condition: condition as string | undefined,
+      location: location as string | undefined,
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
+      sort: sort as string | undefined,
+    });
+    return res.json(results);
+  });
+
+  // GET /api/groups/:id/search/posts?q=... — search posts within a group
+  app.get("/api/groups/:id/search/posts", async (req, res) => {
+    const groupId = Number(req.params.id);
+    const q = (req.query.q as string || "").trim();
+    if (!q || q.length < 2) return res.json([]);
+    const results = await (storage as any).searchGroupPosts(groupId, q);
+    return res.json(results);
+  });
+
+  // GET /api/groups/:id/search/members?q=... — search members of a group
+  app.get("/api/groups/:id/search/members", async (req, res) => {
+    const groupId = Number(req.params.id);
+    const q = (req.query.q as string || "").trim();
+    const results = await (storage as any).searchGroupMembers(groupId, q || "");
+    return res.json(results);
+  });
+
+  // ============================================================
   // CONFIG (public, safe values only)
   // ============================================================
   app.get("/api/config", (_req, res) => {

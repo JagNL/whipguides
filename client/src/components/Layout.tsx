@@ -92,13 +92,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               data-testid="input-search"
-              placeholder="Search listings, groups..."
+              placeholder="Search everything..."
               className="pl-9 bg-secondary border-border h-9"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => {
                 if (e.key === "Enter" && searchQuery.trim()) {
-                  navigate(`/?search=${encodeURIComponent(searchQuery.trim())}`);
+                  navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+                  setSearchQuery("");
                 }
               }}
             />
@@ -259,8 +260,16 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <div className="md:hidden border-t border-border bg-background px-4 py-3 space-y-2">
             <div className="relative mb-3">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input placeholder="Search..." className="pl-9 bg-secondary"
-                value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+              <Input placeholder="Search everything..." className="pl-9 bg-secondary"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && searchQuery.trim()) {
+                    navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+                    setSearchQuery(""); setMobileMenuOpen(false);
+                  }
+                }}
+              />
             </div>
             {navLinks.map(({ href, label, icon: Icon }) => (
               <Link key={href} href={href} onClick={() => setMobileMenuOpen(false)}>

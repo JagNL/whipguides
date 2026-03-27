@@ -16,7 +16,7 @@ import { timeAgo } from "@/lib/utils";
 import {
   Users, MessageSquare, Heart, Share2, Plus,
   MoreHorizontal, TrendingUp, ImageIcon, X, Loader2,
-  BookOpen, Search, Wrench, ChevronRight,
+  BookOpen, Search, Wrench, ChevronRight, Star, MapPin, UserCheck,
 } from "lucide-react";
 
 // ─── Guide search dropdown ────────────────────────────────────
@@ -453,6 +453,128 @@ function RelatedGuides({ category }: { category?: string }) {
   );
 }
 
+// ─── Group Search Panel ─────────────────────────────────────
+function GroupSearchPanel({ groupId }: { groupId: number }) {
+  const [query, setQuery] = useState("");
+  const [submitted, setSubmitted] = useState("");
+  const [tab, setTab] = useState<"posts" | "members">("posts");
+
+  const { data: postResults, isLoading: postsLoading } = useQuery<any[]>({
+    queryKey: ["/api/groups", groupId, "search", "posts", submitted],
+    queryFn: () => apiRequest("GET", `/api/groups/${groupId}/search/posts?q=${encodeURIComponent(submitted)}`).then(r => r.json()),
+    enabled: submitted.length >= 2 && tab === "posts",
+  });
+
+  const { data: memberResults, isLoading: membersLoading } = useQuery<any[]>({
+    queryKey: ["/api/groups", groupId, "search", "members", submitted],
+    queryFn: () => apiRequest("GET", `/api/groups/${groupId}/search/members?q=${encodeURIComponent(submitted)}`).then(r => r.json()),
+    enabled: submitted.length >= 2 && tab === "members",
+  });
+
+  const handleSearch = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    setSubmitted(query.trim());
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <h3 className="font-semibold text-sm flex items-center gap-1.5 mb-3">
+        <Search className="w-4 h-4 text-primary" />
+        Search This Group
+      </h3>
+
+      <form onSubmit={handleSearch} className="flex gap-2 mb-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+          <input
+            data-testid="input-group-search"
+            className="w-full pl-8 pr-3 py-1.5 text-sm bg-secondary border border-border rounded-lg outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground"
+            placeholder="Search posts or members..."
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleSearch()}
+          />
+        </div>
+        <button
+          type="submit"
+          className="px-3 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          data-testid="button-group-search"
+        >
+          Go
+        </button>
+      </form>
+
+      {/* Tab toggle */}
+      <div className="flex bg-secondary rounded-lg p-0.5 mb-3">
+        {(["posts", "members"] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex-1 py-1 text-xs font-semibold rounded-md capitalize transition-colors ${
+              tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* Results */}
+      {submitted.length >= 2 && (
+        <div className="space-y-1">
+          {tab === "posts" && (
+            postsLoading
+              ? <div className="text-xs text-muted-foreground text-center py-3">Searching posts...</div>
+              : !postResults?.length
+              ? <div className="text-xs text-muted-foreground text-center py-3">No posts found</div>
+              : postResults.map((p: any) => (
+                <div key={p.id} className="p-2.5 rounded-lg hover:bg-secondary transition-colors text-sm">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Avatar className="w-5 h-5">
+                      <AvatarImage src={p.author?.avatar} />
+                      <AvatarFallback className="text-[8px]">{p.author?.displayName?.[0]}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-xs font-medium">{p.author?.displayName}</span>
+                    <span className="text-[10px] text-muted-foreground ml-auto">{timeAgo(p.createdAt)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground line-clamp-2">{p.content}</p>
+                </div>
+              ))
+          )}
+
+          {tab === "members" && (
+            membersLoading
+              ? <div className="text-xs text-muted-foreground text-center py-3">Searching members...</div>
+              : !memberResults?.length
+              ? <div className="text-xs text-muted-foreground text-center py-3">No members found</div>
+              : memberResults.map((u: any) => (
+                <Link key={u.id} href={`/profile/${u.id}`}>
+                  <div className="flex items-center gap-2 p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer">
+                    <Avatar className="w-7 h-7 shrink-0">
+                      <AvatarImage src={u.avatar} />
+                      <AvatarFallback className="text-xs bg-primary/20 text-primary">{u.displayName?.[0]}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold truncate">{u.displayName}</p>
+                      <p className="text-[10px] text-muted-foreground">@{u.username}</p>
+                    </div>
+                    {u.role && u.role !== "member" && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary font-semibold capitalize">{u.role}</span>
+                    )}
+                  </div>
+                </Link>
+              ))
+          )}
+        </div>
+      )}
+
+      {!submitted && (
+        <p className="text-xs text-muted-foreground text-center py-2">Type to search posts or find members</p>
+      )}
+    </div>
+  );
+}
+
 // ─── GroupDetailPage ──────────────────────────────────────────
 export default function GroupDetailPage({ id }: { id: number }) {
   const { user, isAuthenticated } = useAuth();
@@ -583,8 +705,9 @@ export default function GroupDetailPage({ id }: { id: number }) {
           </div>
         </div>
 
-        {/* Sidebar — related guides */}
-        <div className="hidden lg:block w-72 shrink-0 sticky top-20">
+        {/* Sidebar */}
+        <div className="hidden lg:block w-72 shrink-0 space-y-4 sticky top-20">
+          <GroupSearchPanel groupId={id} />
           <RelatedGuides category={group.category} />
         </div>
       </div>

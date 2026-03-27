@@ -136,6 +136,18 @@ export interface IStorage {
   likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }>;
   updateGroup(id: number, data: Partial<Group>): Promise<Group | undefined>;
 
+  // Global search
+  searchAll(query: string): Promise<{
+    listings: any[];
+    groups: any[];
+    guides: any[];
+    users: any[];
+    posts: any[];
+  }>;
+  searchListings(query: string, filters?: { category?: string; minPrice?: number; maxPrice?: number; condition?: string; location?: string; sort?: string }): Promise<any[]>;
+  searchGroupPosts(groupId: number, query: string): Promise<any[]>;
+  searchGroupMembers(groupId: number, query: string): Promise<any[]>;
+
   // Guides
   getGuide(id: number, requestingUserId?: number): Promise<Guide | undefined>;
   listGuides(filters?: { category?: string; difficulty?: string; search?: string; authorId?: number }): Promise<Guide[]>;
@@ -631,6 +643,72 @@ export class SupabaseStorage implements IStorage {
   }
 
   // ──────────────────────────────────────────────────────────
+  // SEARCH
+  // ──────────────────────────────────────────────────────────
+
+  async searchAll(query: string) {
+    const q = `%${query}%`;
+    const [listings, groups, guides, users, posts] = await Promise.all([
+      supabaseAdmin.from("listings").select("id,title,price,category,images,condition,location,year,make,model").or(`title.ilike.${q},description.ilike.${q},make.ilike.${q},model.ilike.${q}`).eq("status", "active").limit(6),
+      supabaseAdmin.from("groups").select("id,name,description,category,cover_image,member_count").or(`name.ilike.${q},description.ilike.${q}`).limit(6),
+      supabaseAdmin.from("guides").select("id,title,description,difficulty,time_estimate,vehicle_make,vehicle_model,vehicle_year_start,author_id").or(`title.ilike.${q},description.ilike.${q},vehicle_make.ilike.${q},vehicle_model.ilike.${q}`).limit(6),
+      supabaseAdmin.from("users").select("id,username,display_name,avatar,location,rating,verified").or(`username.ilike.${q},display_name.ilike.${q}`).limit(6),
+      supabaseAdmin.from("posts").select("id,content,group_id,author_id,created_at").ilike("content", `%${query}%`).limit(6),
+    ]);
+    // Enrich posts with group + author
+    const enrichedPosts = await Promise.all((posts.data || []).map(async (p: any) => ({
+      ...p,
+      group: (await supabaseAdmin.from("groups").select("id,name").eq("id", p.group_id).single()).data,
+      author: (await supabaseAdmin.from("users").select("id,username,display_name,avatar").eq("id", p.author_id).single()).data,
+    })));
+    return {
+      listings: listings.data || [],
+      groups: groups.data || [],
+      guides: guides.data || [],
+      users: users.data || [],
+      posts: enrichedPosts,
+    };
+  }
+
+  async searchListings(query: string, filters?: { category?: string; minPrice?: number; maxPrice?: number; condition?: string; location?: string; sort?: string }) {
+    const q = `%${query}%`;
+    let qb = supabaseAdmin.from("listings").select("*").eq("status", "active");
+    if (query) qb = qb.or(`title.ilike.${q},description.ilike.${q},make.ilike.${q},model.ilike.${q},location.ilike.${q}`);
+    if (filters?.category) qb = qb.eq("category", filters.category);
+    if (filters?.condition) qb = qb.eq("condition", filters.condition);
+    if (filters?.location) qb = qb.ilike("location", `%${filters.location}%`);
+    if (filters?.minPrice !== undefined) qb = qb.gte("price", filters.minPrice);
+    if (filters?.maxPrice !== undefined) qb = qb.lte("price", filters.maxPrice);
+    if (filters?.sort === "price_asc") qb = qb.order("price", { ascending: true });
+    else if (filters?.sort === "price_desc") qb = qb.order("price", { ascending: false });
+    else if (filters?.sort === "newest") qb = qb.order("created_at", { ascending: false });
+    else qb = qb.order("featured", { ascending: false }).order("created_at", { ascending: false });
+    const { data } = await qb.limit(100);
+    return (data || []).map(this.mapListing.bind(this));
+  }
+
+  async searchGroupPosts(groupId: number, query: string) {
+    const { data } = await supabaseAdmin.from("posts").select("*").eq("group_id", groupId).ilike("content", `%${query}%`).order("created_at", { ascending: false }).limit(50);
+    const rows = data || [];
+    return Promise.all(rows.map(async (p: any) => ({
+      ...this.mapPost(p),
+      author: await this.getUser(p.author_id),
+    })));
+  }
+
+  async searchGroupMembers(groupId: number, query: string) {
+    const q = `%${query}%`;
+    const { data: members } = await supabaseAdmin.from("group_members").select("user_id,role").eq("group_id", groupId);
+    if (!members?.length) return [];
+    const userIds = members.map((m: any) => m.user_id);
+    const { data: users } = await supabaseAdmin.from("users").select("id,username,display_name,avatar,rating,verified,location").in("id", userIds).or(`username.ilike.${q},display_name.ilike.${q}`);
+    return (users || []).map((u: any) => ({
+      ...this.mapUser(u),
+      role: members.find((m: any) => m.user_id === u.id)?.role,
+    }));
+  }
+
+  // ──────────────────────────────────────────────────────────
   // GUIDES
   // ──────────────────────────────────────────────────────────
 
@@ -967,6 +1045,44 @@ export class MemStorage implements IStorage {
     const updated = { ...g, ...data };
     this.groups.set(id, updated);
     return updated;
+  }
+
+  // ── Search stubs for MemStorage ──
+  async searchAll(query: string) {
+    const q = query.toLowerCase();
+    const listings = Array.from(this.listings.values()).filter(l =>
+      l.status === "active" && (l.title.toLowerCase().includes(q) || (l.make || "").toLowerCase().includes(q) || (l.model || "").toLowerCase().includes(q))
+    ).slice(0, 6);
+    const groups = Array.from(this.groups.values()).filter(g =>
+      g.name.toLowerCase().includes(q) || (g.description || "").toLowerCase().includes(q)
+    ).slice(0, 6);
+    const users = Array.from(this.users.values()).filter(u =>
+      u.username.toLowerCase().includes(q) || (u.displayName || "").toLowerCase().includes(q)
+    ).slice(0, 6);
+    return { listings, groups, guides: [], users, posts: [] };
+  }
+  async searchListings(query: string, filters?: any) {
+    const q = query.toLowerCase();
+    let result = Array.from(this.listings.values()).filter(l => l.status === "active");
+    if (query) result = result.filter(l => l.title.toLowerCase().includes(q) || (l.make || "").toLowerCase().includes(q) || (l.model || "").toLowerCase().includes(q));
+    if (filters?.category) result = result.filter(l => l.category === filters.category);
+    if (filters?.condition) result = result.filter(l => l.condition === filters.condition);
+    if (filters?.minPrice !== undefined) result = result.filter(l => l.price >= filters.minPrice);
+    if (filters?.maxPrice !== undefined) result = result.filter(l => l.price <= filters.maxPrice);
+    if (filters?.sort === "price_asc") result.sort((a, b) => a.price - b.price);
+    else if (filters?.sort === "price_desc") result.sort((a, b) => b.price - a.price);
+    else result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return result;
+  }
+  async searchGroupPosts(groupId: number, query: string) {
+    const q = query.toLowerCase();
+    return Array.from(this.posts.values()).filter(p => p.groupId === groupId && p.content.toLowerCase().includes(q));
+  }
+  async searchGroupMembers(groupId: number, query: string) {
+    const q = query.toLowerCase();
+    return Array.from(this.users.values()).filter(u =>
+      u.username.toLowerCase().includes(q) || (u.displayName || "").toLowerCase().includes(q)
+    ).slice(0, 20);
   }
 
   // ── Guide stubs for MemStorage ──
