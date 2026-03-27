@@ -9,6 +9,14 @@ import { apiRequest } from "./queryClient";
 
 let _client: SupabaseClient | null = null;
 
+// No-op storage shim — prevents Supabase from touching localStorage/sessionStorage
+// (blocked in sandboxed iframes; we manage sessions in-memory ourselves)
+const noopStorage = {
+  getItem: (_key: string) => null,
+  setItem: (_key: string, _value: string) => {},
+  removeItem: (_key: string) => {},
+};
+
 export async function getSupabaseClient(): Promise<SupabaseClient> {
   if (_client) return _client;
   const res = await apiRequest("GET", "/api/config");
@@ -17,7 +25,10 @@ export async function getSupabaseClient(): Promise<SupabaseClient> {
     throw new Error("Supabase config not available");
   }
   _client = createClient(config.supabaseUrl, config.supabaseAnonKey, {
-    auth: { persistSession: false }, // we manage sessions ourselves
+    auth: {
+      persistSession: false,
+      storage: noopStorage as any,
+    },
   });
   return _client;
 }
