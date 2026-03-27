@@ -22,6 +22,9 @@ import SavedListsPage from "@/pages/SavedListsPage";
 import AdvertisePage from "@/pages/AdvertisePage";
 import FeedPage from "@/pages/FeedPage";
 import MyListingsPage from "@/pages/MyListingsPage";
+import { BusinessesPage } from "@/pages/BusinessesPage";
+import { BusinessPage } from "@/pages/BusinessPage";
+import { CreateBusinessPage } from "@/pages/CreateBusinessPage";
 import NotFound from "@/pages/not-found";
 
 export default function App() {
@@ -48,6 +51,9 @@ export default function App() {
             <Route path="/advertise" component={() => <Layout><AdvertisePage /></Layout>} />
             <Route path="/feed" component={() => <Layout><FeedPage /></Layout>} />
             <Route path="/my-listings" component={() => <Layout><MyListingsPage /></Layout>} />
+            <Route path="/business" component={() => <Layout><BusinessesPage /></Layout>} />
+            <Route path="/business/new" component={() => <Layout><CreateBusinessPage /></Layout>} />
+            <Route path="/business/:slug" component={({ params }) => <Layout><BusinessPage slug={params.slug} /></Layout>} />
             <Route component={NotFound} />
           </Switch>
         </Router>

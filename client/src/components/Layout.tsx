@@ -10,7 +10,7 @@ import {
 import {
   Search, Plus, Sun, Moon, Menu, X,
   Gauge, Users, LogOut, User, MessageSquare,
-  ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone, Rss, Tag,
+  ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone, Rss, Tag, Building2,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/hooks/use-auth";
@@ -40,6 +40,7 @@ const navLinks = [
   { href: "/feed", label: "Feed", icon: Rss },
   { href: "/", label: "Marketplace", icon: Gauge },
   { href: "/groups", label: "Groups", icon: Users },
+  { href: "/business", label: "Businesses", icon: Building2 },
   { href: "/guides", label: "Guides", icon: BookOpen },
   { href: "/advertise", label: "Advertise", icon: Megaphone },
 ];
@@ -221,6 +222,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <DropdownMenuItem asChild>
                     <Link href="/my-listings" className="flex items-center gap-2 cursor-pointer">
                       <Tag className="w-4 h-4" /> My Listings
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/business/new" className="flex items-center gap-2 cursor-pointer">
+                      <Building2 className="w-4 h-4" /> My Business Page
                     </Link>
                   </DropdownMenuItem>
                   {/* Admin link — shown if user has admin role */}

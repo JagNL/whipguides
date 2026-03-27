@@ -271,7 +271,17 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
               )}
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap">
-              {post.group && (
+              {post.business_page && (
+                <>
+                  <Link href={`/business/${post.business_page.slug}`}>
+                    <span className="hover:text-primary hover:underline cursor-pointer font-medium text-orange-400">
+                      {post.business_page.name}
+                    </span>
+                  </Link>
+                  <span>·</span>
+                </>
+              )}
+              {post.group && !post.business_page && (
                 <>
                   <Link href={`/groups/${post.group.id}`}>
                     <span className="hover:text-primary hover:underline cursor-pointer font-medium">
@@ -282,7 +292,12 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
                 </>
               )}
               <span>{timeAgo(post.created_at)}</span>
-              {post.group?.category && (
+              {post.business_page?.category && (
+                <Badge variant="outline" className="text-[9px] py-0 px-1.5 h-4 border-orange-500/30 text-orange-400">
+                  {post.business_page.category}
+                </Badge>
+              )}
+              {post.group?.category && !post.business_page && (
                 <Badge variant="outline" className="text-[9px] py-0 px-1.5 h-4">
                   {post.group.category}
                 </Badge>

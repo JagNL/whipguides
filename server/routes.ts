@@ -5,6 +5,7 @@ import { supabaseAdmin as supabaseAdminForRoutes } from "./supabase";
 import { authRouter, requireAuth } from "./auth";
 import { adminRouter, reportRouter } from "./admin";
 import { adsRouter, adminAdsRouter } from "./ads";
+import { businessRouter } from "./business";
 import { uploadRouter } from "./upload";
 import { sendEmail, listingExpiryWarningEmail, listingExpiredEmail, listingSoldConfirmEmail } from "./email";
 
@@ -25,6 +26,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.use("/api/admin", adminRouter);
   app.use("/api/admin/ads", adminAdsRouter);
   app.use("/api/ads", adsRouter);
+
+  // ============================================================
+  // BUSINESS PAGES
+  // ============================================================
+  app.use("/api/business", businessRouter);
   app.use("/api/reports", reportRouter);
 
   // ============================================================
@@ -1309,17 +1315,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .eq("follower_id", currentUser.id);
       const followedIds: number[] = (follows || []).map((f: any) => f.following_id);
 
-      // 3. Query posts from those groups + by followed users, paginated
-      if (groupIds.length === 0 && followedIds.length === 0) {
-        // No groups joined yet — show recent posts from public groups as discovery
+      // 3. Get business pages the user follows
+      const { data: bizFollows } = await supabaseAdminForRoutes
+        .from("business_follows")
+        .select("page_id")
+        .eq("user_id", currentUser.id);
+      const followedPageIds: number[] = (bizFollows || []).map((f: any) => f.page_id);
+
+      // 4. Query posts from groups + followed users + followed business pages
+      const postSelect = `
+        id, content, images, guide_id, created_at, likes,
+        reaction_counts, share_count, post_type, is_pinned,
+        author:author_id(id, username, display_name, avatar, verified, site_role),
+        group:group_id(id, name, avatar, category, is_private),
+        business_page:business_page_id(id, name, slug, logo_id, category, verified)
+      `;
+
+      if (groupIds.length === 0 && followedIds.length === 0 && followedPageIds.length === 0) {
+        // No content sources yet — show recent posts from public groups as discovery
         const { data: discoverPosts } = await supabaseAdminForRoutes
           .from("posts")
-          .select(`
-            id, content, images, guide_id, created_at, likes,
-            reaction_counts, share_count, post_type, is_pinned,
-            author:author_id(id, username, display_name, avatar, verified, site_role),
-            group:group_id(id, name, avatar, category, is_private)
-          `)
+          .select(postSelect)
           .eq("groups.is_private", false)
           .order("created_at", { ascending: false })
           .limit(limit);
@@ -1328,19 +1344,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       let query = supabaseAdminForRoutes
         .from("posts")
-        .select(`
-          id, content, images, guide_id, created_at, likes,
-          reaction_counts, share_count, post_type, is_pinned,
-          author:author_id(id, username, display_name, avatar, verified, site_role),
-          group:group_id(id, name, avatar, category, is_private)
-        `)
+        .select(postSelect)
         .order("created_at", { ascending: false })
         .limit(limit);
 
-      // Build OR filter: posts from my groups OR posts by followed users
+      // Build OR filter: posts from my groups OR by followed users OR from followed business pages
       const conditions: string[] = [];
       if (groupIds.length > 0) conditions.push(`group_id.in.(${groupIds.join(",")})`);
       if (followedIds.length > 0) conditions.push(`author_id.in.(${followedIds.join(",")})`);
+      if (followedPageIds.length > 0) conditions.push(`business_page_id.in.(${followedPageIds.join(",")})`);
       if (conditions.length > 0) query = query.or(conditions.join(","));
 
       if (cursor) query = query.lt("created_at", cursor);
