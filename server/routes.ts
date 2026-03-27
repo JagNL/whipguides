@@ -417,6 +417,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============================================================
+  // CONFIG (public, safe values only)
+  // ============================================================
+  app.get("/api/config", (_req, res) => {
+    res.json({
+      cfImagesUrl: process.env.CLOUDFLARE_IMAGES_URL || "",
+    });
+  });
+
+  // ============================================================
   // HEALTH CHECK
   // ============================================================
   app.get("/api/health", (_req, res) => {

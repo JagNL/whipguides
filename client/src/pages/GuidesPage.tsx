@@ -13,6 +13,7 @@ import {
   Search, Plus, Heart, Eye, Clock, Wrench, BookOpen, ChevronRight,
   Car, Bike, Waves, Truck, Zap, Target,
 } from "lucide-react";
+import { useCfUrl } from "@/hooks/use-cf-url";
 import type { Guide } from "@/../../server/storage";
 
 const CATEGORIES = [
@@ -49,8 +50,8 @@ function vehicleString(g: Guide) {
 }
 
 function GuideCard({ guide }: { guide: Guide }) {
-  const cfUrl = (import.meta.env.VITE_CLOUDFLARE_IMAGES_URL || "").replace(/\/$/, "");
-  const coverSrc = guide.coverImageId ? `${cfUrl}/${guide.coverImageId}/public` : null;
+  const cfUrl = useCfUrl();
+  const coverSrc = guide.coverImageId && cfUrl ? `${cfUrl}/${guide.coverImageId}/public` : null;
 
   return (
     <Link href={`/guides/${guide.id}`}>

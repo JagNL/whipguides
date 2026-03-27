@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { AvatarUploader } from "@/components/ImageUploader";
+import { useCfUrl } from "@/hooks/use-cf-url";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, CheckCircle2,
   Car, BookOpen, ListOrdered, Eye,
@@ -75,6 +76,7 @@ export default function CreateGuidePage() {
     category: "", tools: [], parts: [], coverImageId: "",
     steps: [{ ...EMPTY_STEP }],
   });
+  const cfUrl = useCfUrl();
   const [newTool, setNewTool] = useState("");
   const [newPart, setNewPart] = useState({ name: "", link: "", price: "" });
 
@@ -286,9 +288,9 @@ export default function CreateGuidePage() {
       <div className="space-y-1.5">
         <Label>Cover Image</Label>
         <div className="flex items-start gap-3">
-          {form.coverImageId && (
+          {form.coverImageId && cfUrl && (
             <img
-              src={`${(import.meta.env.VITE_CLOUDFLARE_IMAGES_URL || "").replace(/\/$/, "")}/${form.coverImageId}/public`}
+              src={`${cfUrl}/${form.coverImageId}/public`}
               alt="Cover"
               className="w-20 h-20 object-cover rounded-lg border border-border"
             />

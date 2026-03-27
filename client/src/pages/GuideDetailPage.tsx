@@ -12,6 +12,7 @@ import {
   Heart, Eye, Clock, Wrench, Package, ChevronLeft, BookOpen,
   Trash2, MessageSquare, Send, Car, CheckCircle2,
 } from "lucide-react";
+import { useCfUrl } from "@/hooks/use-cf-url";
 import type { Guide, GuideComment } from "@/../../server/storage";
 
 function difficultyColor(d: string) {
@@ -46,7 +47,7 @@ export default function GuideDetailPage({ id }: { id: number }) {
   const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
   const [optimisticLikes, setOptimisticLikes] = useState<number | null>(null);
 
-  const cfUrl = (import.meta.env.VITE_CLOUDFLARE_IMAGES_URL || "").replace(/\/$/, "");
+  const cfUrl = useCfUrl();
 
   const { data: guide, isLoading } = useQuery<Guide>({
     queryKey: ["/api/guides", id],
