@@ -178,10 +178,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============================================================
   app.get("/api/groups/:id/posts", async (req, res) => {
     const posts = await storage.listPostsByGroup(Number(req.params.id));
-    const enriched = await Promise.all(posts.map(async p => ({
-      ...p,
-      author: await storage.getUser(p.authorId),
-    })));
+    const enriched = await Promise.all(posts.map(async (p: any) => {
+      const base = { ...p, author: await storage.getUser(p.authorId) };
+      if (p.guideId) {
+        base.guide = await storage.getGuide(p.guideId);
+      }
+      return base;
+    }));
     return res.json(enriched);
   });
 
@@ -189,18 +192,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const currentUser = (req as any).currentUser;
     if (!currentUser) return res.status(401).json({ error: "Must be logged in to post" });
     try {
-      const post = await storage.createPost({
+      const post = await (storage as any).createPost({
         groupId: Number(req.params.id),
         authorId: currentUser.id,
         content: req.body.content,
         images: req.body.images || [],
+        guideId: req.body.guideId ? Number(req.body.guideId) : null,
       });
       // Increment group post_count
       const group = await storage.getGroup(Number(req.params.id));
       if (group) await storage.updateGroup(group.id, { postCount: (group.postCount || 0) + 1 } as any);
-      return res.status(201).json({ ...post, author: currentUser });
+      // Enrich with guide if embedded
+      let guide = null;
+      if (post.guideId) guide = await storage.getGuide(post.guideId);
+      return res.status(201).json({ ...post, author: currentUser, guide });
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
+    }
+  });
+
+  // POST /api/posts/:id/helped — toggle "this helped me" reaction
+  app.post("/api/posts/:id/helped", requireAuth, async (req, res) => {
+    const postId = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    try {
+      const result = await (storage as any).togglePostHelped(postId, currentUser.id);
+      return res.json(result);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
     }
   });
 

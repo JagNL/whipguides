@@ -221,7 +221,8 @@ export class SupabaseStorage implements IStorage {
       likes: row.likes,
       commentCount: row.comment_count,
       createdAt: row.created_at,
-    };
+      guideId: row.guide_id ?? null,
+    } as any;
   }
 
   private mapReview(row: any): Review {
@@ -441,15 +442,32 @@ export class SupabaseStorage implements IStorage {
     return (data || []).map(this.mapPost.bind(this));
   }
 
-  async createPost(post: InsertPost): Promise<Post> {
+  async createPost(post: InsertPost & { guideId?: number | null }): Promise<Post> {
     const { data, error } = await supabaseAdmin.from("posts").insert({
       group_id: post.groupId,
       author_id: post.authorId,
       content: post.content,
       images: post.images || [],
+      guide_id: (post as any).guideId ?? null,
     }).select().single();
     if (error) throw new Error(error.message);
     return this.mapPost(data);
+  }
+
+  async togglePostHelped(postId: number, userId: number): Promise<{ helped: boolean; count: number }> {
+    const { data: existing } = await supabaseAdmin.from("post_helped").select("post_id").eq("post_id", postId).eq("user_id", userId).single();
+    if (existing) {
+      await supabaseAdmin.from("post_helped").delete().eq("post_id", postId).eq("user_id", userId);
+    } else {
+      await supabaseAdmin.from("post_helped").insert({ post_id: postId, user_id: userId }).select().single().catch(() => null);
+    }
+    const { count } = await supabaseAdmin.from("post_helped").select("*", { count: "exact", head: true }).eq("post_id", postId);
+    return { helped: !existing, count: count ?? 0 };
+  }
+
+  async getPostHelpedStatus(postId: number, userId: number): Promise<boolean> {
+    const { data } = await supabaseAdmin.from("post_helped").select("post_id").eq("post_id", postId).eq("user_id", userId).single();
+    return !!data;
   }
 
   async listReviewsForUser(userId: number): Promise<Review[]> {

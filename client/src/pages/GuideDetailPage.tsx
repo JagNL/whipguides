@@ -6,11 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import {
   Heart, Eye, Clock, Wrench, Package, ChevronLeft, BookOpen,
-  Trash2, MessageSquare, Send, Car, CheckCircle2,
+  Trash2, MessageSquare, Send, Car, CheckCircle2, Share2, Users,
 } from "lucide-react";
 import { useCfUrl } from "@/hooks/use-cf-url";
 import type { Guide, GuideComment } from "@/../../server/storage";
@@ -38,6 +42,101 @@ function timeAgo(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+// ─── Share to Group modal ────────────────────────────────────
+function ShareToGroupModal({ guide, open, onClose }: { guide: Guide; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("");
+  const [message, setMessage] = useState("");
+
+  const { data: groups } = useQuery<any[]>({
+    queryKey: ["/api/groups"],
+    queryFn: () => apiRequest("GET", "/api/groups").then(r => r.json()),
+    enabled: open,
+  });
+
+  const shareMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/groups/${selectedGroupId}/posts`, {
+        content: message.trim() || `Check out this guide: ${guide.title}`,
+        images: [],
+        guideId: guide.id,
+      }).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Shared to group!", description: "Your post is live." });
+      setMessage(""); setSelectedGroupId("");
+      onClose();
+    },
+    onError: () => toast({ title: "Error sharing", variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Share2 className="w-4 h-4 text-primary" />
+            Share Guide to a Group
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          {/* Guide preview */}
+          <div className="bg-secondary rounded-lg p-3 text-sm">
+            <p className="font-semibold line-clamp-1">{guide.title}</p>
+            <p className="text-muted-foreground text-xs mt-0.5">
+              {guide.vehicleYearStart} {guide.vehicleMake} {guide.vehicleModel} · <span className="capitalize">{guide.difficulty}</span>
+            </p>
+          </div>
+
+          {/* Group picker */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Post to group</label>
+            <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
+              <SelectTrigger data-testid="select-share-group" className="bg-secondary">
+                <SelectValue placeholder="Pick a group..." />
+              </SelectTrigger>
+              <SelectContent>
+                {groups?.map((g: any) => (
+                  <SelectItem key={g.id} value={String(g.id)}>
+                    <span className="flex items-center gap-2">
+                      <Users className="w-3.5 h-3.5" />
+                      {g.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Optional message */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Add a message <span className="text-muted-foreground font-normal">(optional)</span></label>
+            <Textarea
+              data-testid="textarea-share-message"
+              placeholder="Say something about this guide..."
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              className="bg-secondary resize-none min-h-[80px]"
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={() => shareMutation.mutate()}
+            disabled={!selectedGroupId || shareMutation.isPending}
+            data-testid="button-confirm-share-guide"
+            className="gap-2"
+          >
+            {shareMutation.isPending ? "Sharing..." : <><Share2 className="w-4 h-4" /> Share to Group</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function GuideDetailPage({ id }: { id: number }) {
   const [, navigate] = useLocation();
   const { isAuthenticated, user } = useAuth();
@@ -46,6 +145,7 @@ export default function GuideDetailPage({ id }: { id: number }) {
   const [commentText, setCommentText] = useState("");
   const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
   const [optimisticLikes, setOptimisticLikes] = useState<number | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
 
   const cfUrl = useCfUrl();
 
@@ -177,8 +277,20 @@ export default function GuideDetailPage({ id }: { id: number }) {
         </div>
 
         {/* Author actions */}
-        {isAuthor && (
-          <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          {isAuthenticated && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShareModalOpen(true)}
+              data-testid="button-share-guide"
+              className="gap-1.5"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              Share to Group
+            </Button>
+          )}
+          {isAuthor && (
             <Button
               variant="destructive"
               size="sm"
@@ -190,8 +302,8 @@ export default function GuideDetailPage({ id }: { id: number }) {
               <Trash2 className="w-3.5 h-3.5" />
               Delete Guide
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Cover image */}
@@ -444,6 +556,15 @@ export default function GuideDetailPage({ id }: { id: number }) {
           ))}
         </div>
       </div>
+
+      {/* Share to Group modal */}
+      {guide && (
+        <ShareToGroupModal
+          guide={guide}
+          open={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

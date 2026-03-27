@@ -5,41 +5,125 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Link } from "wouter";
-import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Link, useLocation } from "wouter";
+import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import ImageUploader from "@/components/ImageUploader";
+import { GuideEmbedCard } from "@/components/GuideEmbedCard";
 import { timeAgo } from "@/lib/utils";
 import {
   Users, MessageSquare, Heart, Share2, Plus,
-  MoreHorizontal, TrendingUp, ImageIcon, X, Loader2
+  MoreHorizontal, TrendingUp, ImageIcon, X, Loader2,
+  BookOpen, Search, Wrench, ChevronRight,
 } from "lucide-react";
+
+// ─── Guide search dropdown ────────────────────────────────────
+function GuideSearch({ onSelect }: { onSelect: (guide: any) => void }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const { data: results } = useQuery<any[]>({
+    queryKey: ["/api/guides", { search: query }],
+    queryFn: () =>
+      apiRequest("GET", `/api/guides?search=${encodeURIComponent(query)}`).then(r => r.json()),
+    enabled: query.length >= 2,
+  });
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <div className="flex items-center gap-2 bg-secondary border border-border rounded-lg px-3 py-2">
+        <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+        <input
+          data-testid="input-guide-search-attach"
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          placeholder="Search guides to attach..."
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+        />
+        {query && (
+          <button onClick={() => { setQuery(""); setOpen(false); }}>
+            <X className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+          </button>
+        )}
+      </div>
+
+      {open && results && results.length > 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden max-h-64 overflow-y-auto">
+          {results.map((guide: any) => (
+            <button
+              key={guide.id}
+              data-testid={`guide-result-${guide.id}`}
+              className="w-full flex items-start gap-3 p-3 hover:bg-secondary transition-colors text-left border-b border-border last:border-0"
+              onClick={() => { onSelect(guide); setQuery(""); setOpen(false); }}
+            >
+              <BookOpen className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium line-clamp-1">{guide.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  {guide.vehicleYearStart} {guide.vehicleMake} {guide.vehicleModel}
+                  {" · "}
+                  <span className="capitalize">{guide.difficulty}</span>
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {open && query.length >= 2 && results?.length === 0 && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl z-50 p-3 text-sm text-muted-foreground text-center">
+          No guides found for "{query}"
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ─── PostCard ─────────────────────────────────────────────────
 function PostCard({ post, currentUserId }: { post: any; currentUserId?: number }) {
   const { toast } = useToast();
   const [liked, setLiked] = useState(false);
   const [likes, setLikes] = useState(post.likes || 0);
+  const [helped, setHelped] = useState(false);
+  const [helpedCount, setHelpedCount] = useState(0);
 
   const { mutate: toggleLike } = useMutation({
     mutationFn: () => apiRequest("POST", `/api/posts/${post.id}/like`).then(r => r.json()),
-    onSuccess: (data) => {
-      setLiked(data.liked);
-      setLikes(data.likes);
-    },
+    onSuccess: (data) => { setLiked(data.liked); setLikes(data.likes); },
     onError: () => toast({ title: "Sign in to like posts", variant: "destructive" }),
   });
 
+  const { mutate: toggleHelped } = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/posts/${post.id}/helped`).then(r => r.json()),
+    onSuccess: (data) => { setHelped(data.helped); setHelpedCount(data.count); },
+    onError: () => toast({ title: "Sign in to react", variant: "destructive" }),
+  });
+
   const handleLike = () => {
-    if (!currentUserId) {
-      toast({ title: "Sign in required", description: "Sign in to like posts." });
-      return;
-    }
-    // Optimistic toggle
+    if (!currentUserId) { toast({ title: "Sign in required" }); return; }
     setLiked(l => !l);
     setLikes((n: number) => liked ? n - 1 : n + 1);
     toggleLike();
+  };
+
+  const handleHelped = () => {
+    if (!currentUserId) { toast({ title: "Sign in required" }); return; }
+    setHelped(h => !h);
+    setHelpedCount(n => helped ? Math.max(0, n - 1) : n + 1);
+    toggleHelped();
   };
 
   return (
@@ -68,11 +152,16 @@ function PostCard({ post, currentUserId }: { post: any; currentUserId?: number }
       </div>
 
       {/* Content */}
-      <p className="text-sm text-foreground leading-relaxed mb-3 whitespace-pre-line">{post.content}</p>
+      {post.content && (
+        <p className="text-sm text-foreground leading-relaxed mb-3 whitespace-pre-line">{post.content}</p>
+      )}
+
+      {/* Guide embed */}
+      {post.guide && <GuideEmbedCard guide={post.guide} />}
 
       {/* Images */}
       {post.images?.length > 0 && (
-        <div className={`grid gap-1.5 mb-3 ${post.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+        <div className={`grid gap-1.5 mt-3 ${post.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
           {post.images.slice(0, 4).map((img: string, i: number) => (
             <div key={i} className="relative rounded-lg overflow-hidden aspect-video bg-secondary">
               <img src={img} alt="" className="w-full h-full object-cover" />
@@ -87,7 +176,7 @@ function PostCard({ post, currentUserId }: { post: any; currentUserId?: number }
       )}
 
       {/* Actions */}
-      <div className="flex items-center gap-4 pt-2 border-t border-border">
+      <div className="flex items-center gap-4 pt-3 mt-3 border-t border-border flex-wrap">
         <button
           data-testid={`button-like-post-${post.id}`}
           onClick={handleLike}
@@ -96,10 +185,30 @@ function PostCard({ post, currentUserId }: { post: any; currentUserId?: number }
           <Heart className={`w-4 h-4 transition-colors ${liked ? "fill-red-500 text-red-500" : ""}`} />
           {likes.toLocaleString()}
         </button>
+
         <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors">
           <MessageSquare className="w-4 h-4" />
           {(post.commentCount || 0).toLocaleString()} comments
         </button>
+
+        {/* "This helped me" — only shown on posts with a guide embed */}
+        {post.guide && (
+          <button
+            data-testid={`button-helped-${post.id}`}
+            onClick={handleHelped}
+            className={`flex items-center gap-1.5 text-xs transition-colors ${
+              helped
+                ? "text-primary font-semibold"
+                : "text-muted-foreground hover:text-primary"
+            }`}
+            title="This guide helped me"
+          >
+            <Wrench className={`w-4 h-4 ${helped ? "text-primary" : ""}`} />
+            {helped ? "Helped me" : "This helped me"}
+            {helpedCount > 0 && <span className="ml-0.5">· {helpedCount}</span>}
+          </button>
+        )}
+
         <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors ml-auto">
           <Share2 className="w-4 h-4" />
           Share
@@ -116,26 +225,50 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
   const [content, setContent] = useState("");
   const [imageIds, setImageIds] = useState<string[]>([]);
   const [showImages, setShowImages] = useState(false);
+  const [showGuideSearch, setShowGuideSearch] = useState(false);
+  const [attachedGuide, setAttachedGuide] = useState<any>(null);
+
+  // @guide: autocomplete trigger
+  const handleContentChange = (val: string) => {
+    setContent(val);
+    if (val.endsWith("@guide:") || val.includes("@guide:")) {
+      setShowGuideSearch(true);
+    }
+  };
+
+  const handleAttachGuide = (guide: any) => {
+    setAttachedGuide(guide);
+    setShowGuideSearch(false);
+    // Remove the @guide: trigger text if present
+    setContent(c => c.replace(/@guide:\S*/g, "").trimEnd());
+  };
+
+  const handleDetachGuide = () => setAttachedGuide(null);
+
+  const reset = () => {
+    setContent(""); setImageIds([]); setShowImages(false);
+    setShowGuideSearch(false); setAttachedGuide(null); setExpanded(false);
+  };
 
   const { mutate: submitPost, isPending } = useMutation({
     mutationFn: () =>
       apiRequest("POST", `/api/groups/${groupId}/posts`, {
         content: content.trim(),
         images: imageIds,
+        guideId: attachedGuide?.id ?? null,
       }).then(r => r.json()),
     onSuccess: (newPost) => {
       queryClient.setQueryData<any[]>(["/api/groups", groupId, "posts"], old =>
         [{ ...newPost, author: user }, ...(old || [])]
       );
       queryClient.invalidateQueries({ queryKey: ["/api/groups", groupId] });
-      setContent("");
-      setImageIds([]);
-      setShowImages(false);
-      setExpanded(false);
-      toast({ title: "Posted!", description: "Your post is live in the group." });
+      reset();
+      toast({ title: "Posted!" });
     },
     onError: () => toast({ title: "Error", description: "Could not post. Try again.", variant: "destructive" }),
   });
+
+  const canPost = (content.trim() || attachedGuide) && !isPending;
 
   if (!expanded) {
     return (
@@ -152,12 +285,8 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
           >
             Share something with the group...
           </button>
-          <Button
-            size="icon" variant="outline"
-            className="h-9 w-9 shrink-0"
-            onClick={() => setExpanded(true)}
-            data-testid="button-new-post"
-          >
+          <Button size="icon" variant="outline" className="h-9 w-9 shrink-0"
+            onClick={() => setExpanded(true)} data-testid="button-new-post">
             <Plus className="w-4 h-4" />
           </Button>
         </div>
@@ -175,7 +304,7 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
           </Avatar>
           <span className="font-semibold text-sm">{user.displayName}</span>
         </div>
-        <button onClick={() => { setExpanded(false); setContent(""); setImageIds([]); setShowImages(false); }}>
+        <button onClick={reset}>
           <X className="w-4 h-4 text-muted-foreground hover:text-foreground transition-colors" />
         </button>
       </div>
@@ -183,40 +312,78 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
       <Textarea
         data-testid="input-post-content"
         autoFocus
-        placeholder="What's on your mind?"
+        placeholder="What's on your mind? Type @guide: to attach a guide..."
         value={content}
-        onChange={e => setContent(e.target.value)}
+        onChange={e => handleContentChange(e.target.value)}
         rows={3}
         className="bg-secondary border-border resize-none"
       />
 
-      {showImages && (
-        <ImageUploader
-          value={imageIds}
-          onChange={setImageIds}
-          maxImages={4}
-          label="Photos"
-        />
+      {/* Guide search (shown when @guide: typed or button clicked) */}
+      {showGuideSearch && (
+        <div className="space-y-1">
+          <GuideSearch onSelect={handleAttachGuide} />
+          <button
+            onClick={() => setShowGuideSearch(false)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Cancel guide search
+          </button>
+        </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => setShowImages(s => !s)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
-          data-testid="button-toggle-post-images"
-        >
-          <ImageIcon className="w-4 h-4" />
-          {showImages ? "Hide photos" : "Add photos"}
-        </button>
+      {/* Attached guide preview */}
+      {attachedGuide && (
+        <div className="relative">
+          <button
+            onClick={handleDetachGuide}
+            className="absolute -top-1 -right-1 z-10 w-5 h-5 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/80 transition-colors"
+            data-testid="button-detach-guide"
+            title="Remove guide"
+          >
+            <X className="w-3 h-3" />
+          </button>
+          <GuideEmbedCard guide={attachedGuide} clickable={false} />
+        </div>
+      )}
+
+      {/* Image uploader */}
+      {showImages && (
+        <ImageUploader value={imageIds} onChange={setImageIds} maxImages={4} label="Photos" />
+      )}
+
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowImages(s => !s)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+            data-testid="button-toggle-post-images"
+          >
+            <ImageIcon className="w-4 h-4" />
+            {showImages ? "Hide photos" : "Add photos"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowGuideSearch(s => !s)}
+            className={`flex items-center gap-1.5 text-xs transition-colors ${
+              showGuideSearch || attachedGuide
+                ? "text-primary"
+                : "text-muted-foreground hover:text-primary"
+            }`}
+            data-testid="button-attach-guide"
+          >
+            <BookOpen className="w-4 h-4" />
+            {attachedGuide ? "Change guide" : "Attach guide"}
+          </button>
+        </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => { setExpanded(false); setContent(""); }}>
-            Cancel
-          </Button>
+          <Button variant="outline" size="sm" onClick={reset}>Cancel</Button>
           <Button
             size="sm"
-            disabled={!content.trim() || isPending}
+            disabled={!canPost}
             onClick={() => submitPost()}
             data-testid="button-submit-post"
             className="font-semibold"
@@ -224,6 +391,63 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
             {isPending ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Posting...</> : "Post"}
           </Button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Related Guides sidebar panel ────────────────────────────
+function RelatedGuides({ category }: { category?: string }) {
+  const [, navigate] = useLocation();
+
+  const { data: guides } = useQuery<any[]>({
+    queryKey: ["/api/guides", { category }],
+    queryFn: () => {
+      const params = category ? `?category=${encodeURIComponent(category)}` : "";
+      return apiRequest("GET", `/api/guides${params}`).then(r => r.json());
+    },
+    enabled: !!category,
+  });
+
+  // Fallback: fetch recent guides if no category match
+  const { data: recentGuides } = useQuery<any[]>({
+    queryKey: ["/api/guides", { recent: true }],
+    queryFn: () => apiRequest("GET", "/api/guides").then(r => r.json()),
+    enabled: !category || !guides?.length,
+  });
+
+  const displayed = (guides?.length ? guides : recentGuides)?.slice(0, 5) ?? [];
+
+  if (!displayed.length) return null;
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold text-sm flex items-center gap-1.5">
+          <BookOpen className="w-4 h-4 text-primary" />
+          {category ? `${category} Guides` : "Recent Guides"}
+        </h3>
+        <button
+          onClick={() => navigate("/guides")}
+          className="text-xs text-primary hover:underline flex items-center gap-0.5"
+        >
+          All guides <ChevronRight className="w-3 h-3" />
+        </button>
+      </div>
+      <div className="space-y-2">
+        {displayed.map((guide: any) => (
+          <Link key={guide.id} href={`/guides/${guide.id}`}>
+            <div className="flex items-start gap-2.5 py-2 border-b border-border last:border-0 hover:opacity-80 transition-opacity cursor-pointer">
+              <div className="w-8 h-8 rounded-md bg-secondary flex items-center justify-center shrink-0 overflow-hidden">
+                <BookOpen className="w-4 h-4 text-muted-foreground/50" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium line-clamp-1">{guide.title}</p>
+                <p className="text-[10px] text-muted-foreground capitalize">{guide.difficulty} · {guide.timeEstimate}h</p>
+              </div>
+            </div>
+          </Link>
+        ))}
       </div>
     </div>
   );
@@ -244,7 +468,6 @@ export default function GroupDetailPage({ id }: { id: number }) {
     queryFn: () => apiRequest("GET", `/api/groups/${id}/posts`).then(r => r.json()),
   });
 
-  // Check membership
   const { data: membershipData } = useQuery<{ isMember: boolean }>({
     queryKey: ["/api/groups", id, "membership"],
     queryFn: () => apiRequest("GET", `/api/groups/${id}/membership`).then(r => r.json()),
@@ -258,25 +481,19 @@ export default function GroupDetailPage({ id }: { id: number }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups", id, "membership"] });
       queryClient.invalidateQueries({ queryKey: ["/api/groups", id] });
-      toast({
-        title: isMember ? "Left group" : "Joined group!",
-        description: isMember ? "You've left this group." : "You're now a member.",
-      });
+      toast({ title: isMember ? "Left group" : "Joined group!" });
     },
     onError: () => toast({ title: "Error", description: "Could not update membership.", variant: "destructive" }),
   });
 
   const handleJoinLeave = () => {
-    if (!isAuthenticated) {
-      toast({ title: "Sign in required", description: "Sign in to join groups." });
-      return;
-    }
+    if (!isAuthenticated) { toast({ title: "Sign in required" }); return; }
     toggleMembership();
   };
 
   if (groupLoading) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-8">
         <Skeleton className="h-48 rounded-xl mb-4" />
         <Skeleton className="h-8 w-1/2 mb-2" />
         <Skeleton className="h-4 w-3/4" />
@@ -287,7 +504,7 @@ export default function GroupDetailPage({ id }: { id: number }) {
   if (!group) return <div className="p-8 text-center text-muted-foreground">Group not found.</div>;
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6">
+    <div className="max-w-5xl mx-auto px-4 py-6">
       {/* Cover + header */}
       <div className="bg-card rounded-xl border border-border overflow-hidden mb-5">
         <div className="relative h-48 bg-secondary">
@@ -325,40 +542,51 @@ export default function GroupDetailPage({ id }: { id: number }) {
         </div>
       </div>
 
-      {/* Post composer — only for members */}
-      {isMember && user && <PostComposer groupId={id} user={user} />}
+      {/* Two-column layout: feed + sidebar */}
+      <div className="flex gap-5 items-start">
+        {/* Main feed */}
+        <div className="flex-1 min-w-0">
+          {/* Post composer — only for members */}
+          {isMember && user && <PostComposer groupId={id} user={user} />}
 
-      {/* Non-member nudge */}
-      {!isMember && isAuthenticated && (
-        <div className="bg-primary/8 border border-primary/20 rounded-xl p-4 mb-5 flex items-center justify-between gap-4">
-          <p className="text-sm text-muted-foreground">Join this group to post and interact with members.</p>
-          <Button size="sm" onClick={handleJoinLeave} disabled={joiningLeaving} className="shrink-0">
-            Join Group
-          </Button>
-        </div>
-      )}
-
-      {/* Posts feed */}
-      <div className="space-y-4">
-        {postsLoading ? (
-          Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="bg-card rounded-xl border border-border p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Skeleton className="w-9 h-9 rounded-full" />
-                <div className="space-y-1"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-20" /></div>
-              </div>
-              <Skeleton className="h-16 w-full" />
+          {/* Non-member nudge */}
+          {!isMember && isAuthenticated && (
+            <div className="bg-primary/8 border border-primary/20 rounded-xl p-4 mb-5 flex items-center justify-between gap-4">
+              <p className="text-sm text-muted-foreground">Join this group to post and share guides with members.</p>
+              <Button size="sm" onClick={handleJoinLeave} disabled={joiningLeaving} className="shrink-0">
+                Join Group
+              </Button>
             </div>
-          ))
-        ) : posts.length === 0 ? (
-          <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border">
-            <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-30" />
-            <p className="font-semibold">No posts yet</p>
-            <p className="text-sm mt-1">{isMember ? "Be the first to post in this group." : "Join to start posting."}</p>
+          )}
+
+          {/* Posts feed */}
+          <div className="space-y-4">
+            {postsLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="bg-card rounded-xl border border-border p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="w-9 h-9 rounded-full" />
+                    <div className="space-y-1"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-20" /></div>
+                  </div>
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              ))
+            ) : posts.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border">
+                <TrendingUp className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                <p className="font-semibold">No posts yet</p>
+                <p className="text-sm mt-1">{isMember ? "Be the first to post — try attaching a guide!" : "Join to start posting."}</p>
+              </div>
+            ) : (
+              posts.map(post => <PostCard key={post.id} post={post} currentUserId={user?.id} />)
+            )}
           </div>
-        ) : (
-          posts.map(post => <PostCard key={post.id} post={post} currentUserId={user?.id} />)
-        )}
+        </div>
+
+        {/* Sidebar — related guides */}
+        <div className="hidden lg:block w-72 shrink-0 sticky top-20">
+          <RelatedGuides category={group.category} />
+        </div>
       </div>
     </div>
   );
