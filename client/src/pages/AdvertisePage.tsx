@@ -26,6 +26,7 @@ import {
   Pause, Play, AlertCircle, ExternalLink, Image as ImageIcon,
 } from "lucide-react";
 import { timeAgo, formatPrice } from "@/lib/utils";
+import { AuthModal } from "@/components/AuthModal";
 
 const STATUS_STYLES: Record<string, string> = {
   active: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
@@ -528,6 +529,29 @@ function AdCreativeDialog({ campaignId, open, onClose }: { campaignId: number; o
 }
 
 // ── Main Dashboard ────────────────────────────────────────────
+// Sign-in prompt — separate component so hooks stay at top level
+function AdvertiseSignInPrompt() {
+  const [authOpen, setAuthOpen] = useState(false);
+  return (
+    <>
+      <div className="max-w-2xl mx-auto px-6 py-20 text-center space-y-4">
+        <Megaphone className="w-12 h-12 text-primary mx-auto opacity-60" />
+        <h1 className="text-2xl font-bold">Advertise on WhipGuides</h1>
+        <p className="text-muted-foreground">
+          <button
+            onClick={() => setAuthOpen(true)}
+            className="underline underline-offset-2 text-primary hover:text-primary/80 transition-colors font-medium"
+          >
+            Sign in
+          </button>
+          {" "}to create your ad account and reach enthusiasts across cars, trucks, outdoors, maker communities, and more.
+        </p>
+      </div>
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} defaultMode="login" />
+    </>
+  );
+}
+
 export default function AdvertisePage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -572,13 +596,7 @@ export default function AdvertisePage() {
   });
 
   if (!user) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-20 text-center space-y-4">
-        <Megaphone className="w-12 h-12 text-primary mx-auto opacity-60" />
-        <h1 className="text-2xl font-bold">Advertise on WhipGuides</h1>
-        <p className="text-muted-foreground">Sign in to create your ad account and reach enthusiasts across cars, trucks, outdoors, maker communities, and more.</p>
-      </div>
-    );
+    return <AdvertiseSignInPrompt />;
   }
 
   if (accountLoading) {
