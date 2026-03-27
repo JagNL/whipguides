@@ -190,6 +190,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json(groups.slice(0, 6));
   });
 
+  // GET /api/groups/:id/rules
+  app.get("/api/groups/:id/rules", async (req, res) => {
+    const rules = await (storage as any).listGroupRules(Number(req.params.id));
+    return res.json(rules);
+  });
+
+  // PUT /api/groups/:id/rules — replace all rules (owner only)
+  app.put("/api/groups/:id/rules", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    if (group.ownerId !== currentUser.id) return res.status(403).json({ error: "Only the group owner can set rules" });
+    const { rules } = req.body;
+    if (!Array.isArray(rules)) return res.status(400).json({ error: "rules must be an array" });
+    await (storage as any).setGroupRules(groupId, rules.filter((r: any) => r.title?.trim()));
+    return res.json({ ok: true });
+  });
+
+  // POST /api/groups/:id/setup — save wizard results (owner only)
+  app.post("/api/groups/:id/setup", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    if (group.ownerId !== currentUser.id) return res.status(403).json({ error: "Only the group owner can complete setup" });
+    const { avatar, coverImage, rules } = req.body;
+    // Save images
+    await (storage as any).completeGroupSetup(groupId, { avatar, coverImage, setupComplete: true });
+    // Save rules if provided
+    if (Array.isArray(rules) && rules.length > 0) {
+      await (storage as any).setGroupRules(groupId, rules.filter((r: any) => r.title?.trim()));
+    }
+    const updated = await storage.getGroup(groupId);
+    return res.json(updated);
+  });
+
   // GET /api/groups/:id
   app.get("/api/groups/:id", async (req, res) => {
     const group = await storage.getGroup(Number(req.params.id));

@@ -139,6 +139,13 @@ export interface IStorage {
   // User's joined groups
   listGroupsForUser(userId: number): Promise<Group[]>;
 
+  // Group rules
+  listGroupRules(groupId: number): Promise<any[]>;
+  setGroupRules(groupId: number, rules: { title: string; body?: string }[]): Promise<void>;
+
+  // Group setup
+  completeGroupSetup(groupId: number, data: { avatar?: string; coverImage?: string; setupComplete?: boolean }): Promise<void>;
+
   // Private group join requests
   requestJoinGroup(groupId: number, userId: number, message?: string): Promise<void>;
   cancelJoinRequest(groupId: number, userId: number): Promise<void>;
@@ -684,6 +691,39 @@ export class SupabaseStorage implements IStorage {
     return (data || []).map(this.mapGroup.bind(this));
   }
 
+  async listGroupRules(groupId: number): Promise<any[]> {
+    const { data } = await supabaseAdmin
+      .from("group_rules")
+      .select("*")
+      .eq("group_id", groupId)
+      .order("position", { ascending: true });
+    return data || [];
+  }
+
+  async setGroupRules(groupId: number, rules: { title: string; body?: string }[]): Promise<void> {
+    // Delete existing rules then insert new ones
+    await supabaseAdmin.from("group_rules").delete().eq("group_id", groupId);
+    if (!rules.length) return;
+    await supabaseAdmin.from("group_rules").insert(
+      rules.map((r, i) => ({
+        group_id: groupId,
+        position: i,
+        title: r.title,
+        body: r.body || null,
+      }))
+    );
+  }
+
+  async completeGroupSetup(groupId: number, data: { avatar?: string; coverImage?: string; setupComplete?: boolean }): Promise<void> {
+    const updates: any = {};
+    if (data.avatar !== undefined) updates.avatar = data.avatar;
+    if (data.coverImage !== undefined) updates.cover_image = data.coverImage;
+    if (data.setupComplete !== undefined) updates.setup_complete = data.setupComplete;
+    if (Object.keys(updates).length > 0) {
+      await supabaseAdmin.from("groups").update(updates).eq("id", groupId);
+    }
+  }
+
   // ──────────────────────────────────────────────────────────
   // PRIVATE GROUP JOIN REQUESTS
   // ──────────────────────────────────────────────────────────
@@ -1208,6 +1248,18 @@ export class MemStorage implements IStorage {
       .filter(m => m.userId === userId)
       .map(m => m.groupId);
     return Array.from(this.groups.values()).filter(g => memberGroupIds.includes(g.id));
+  }
+
+  private _groupRules: Map<number, any[]> = new Map();
+  async listGroupRules(groupId: number): Promise<any[]> {
+    return this._groupRules.get(groupId) || [];
+  }
+  async setGroupRules(groupId: number, rules: { title: string; body?: string }[]): Promise<void> {
+    this._groupRules.set(groupId, rules.map((r, i) => ({ id: i + 1, groupId, position: i, ...r })));
+  }
+  async completeGroupSetup(groupId: number, data: any): Promise<void> {
+    const g = this.groups.get(groupId);
+    if (g) this.groups.set(groupId, { ...g, ...(data.avatar && { avatar: data.avatar }), ...(data.coverImage && { coverImage: data.coverImage }) });
   }
 
   // ── Private group join request stubs for MemStorage ──

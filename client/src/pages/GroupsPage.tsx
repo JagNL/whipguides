@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { GroupSetupWizard } from "@/components/GroupSetupWizard";
 import {
   Users, Lock, Plus, TrendingUp, Loader2, Search,
   X, Sparkles, ChevronRight, BookOpen,
@@ -174,6 +175,7 @@ function SearchDropdown({ results, onClose }: { results: any[]; onClose: () => v
 export default function GroupsPage() {
   const [activeCategory, setActiveCategory] = useState("All");
   const [createOpen, setCreateOpen] = useState(false);
+  const [wizardGroup, setWizardGroup] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
@@ -254,8 +256,8 @@ export default function GroupsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/groups/mine"] });
       setCreateOpen(false);
       setName(""); setDescription(""); setCategory(""); setIsPrivate(false);
-      toast({ title: "Group created!", description: `${group.name} is now live.` });
-      navigate(`/groups/${group.id}`);
+      // Launch setup wizard
+      setWizardGroup(group);
     },
     onError: (err: any) => {
       const message = err?.message || "Could not create group. Please try again.";
@@ -479,6 +481,15 @@ export default function GroupsPage() {
           )}
         </div>
       </div>
+
+      {/* ── Group Setup Wizard ── */}
+      {wizardGroup && (
+        <GroupSetupWizard
+          group={wizardGroup}
+          open={!!wizardGroup}
+          onClose={() => setWizardGroup(null)}
+        />
+      )}
 
       {/* ── Create Group Dialog ── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

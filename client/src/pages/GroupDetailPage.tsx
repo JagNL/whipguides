@@ -17,7 +17,7 @@ import {
   Users, MessageSquare, Heart, Share2, Plus,
   MoreHorizontal, TrendingUp, ImageIcon, X, Loader2,
   BookOpen, Search, Wrench, ChevronRight, Star, MapPin, UserCheck,
-  Lock, Clock, CheckCircle2, XCircle, UserPlus, Eye, EyeOff,
+  Lock, Clock, CheckCircle2, XCircle, UserPlus, Eye, EyeOff, Shield,
 } from "lucide-react";
 
 // ─── Guide search dropdown ────────────────────────────────────
@@ -450,6 +450,37 @@ function RelatedGuides({ category }: { category?: string }) {
           </Link>
         ))}
       </div>
+    </div>
+  );
+}
+
+// ─── Group Rules Panel ─────────────────────────────────────
+function GroupRulesPanel({ groupId }: { groupId: number }) {
+  const { data: rules = [] } = useQuery<any[]>({
+    queryKey: ["/api/groups", groupId, "rules"],
+    queryFn: () => apiRequest("GET", `/api/groups/${groupId}/rules`).then(r => r.json()),
+  });
+
+  if (!rules.length) return null;
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <h3 className="font-semibold text-sm flex items-center gap-1.5 mb-3">
+        <Shield className="w-4 h-4 text-primary" /> Group Rules
+      </h3>
+      <ol className="space-y-2.5">
+        {rules.map((rule: any, i: number) => (
+          <li key={rule.id} className="flex gap-2.5">
+            <span className="w-5 h-5 rounded-full bg-primary/15 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+              {i + 1}
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold leading-snug">{rule.title}</p>
+              {rule.body && <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed">{rule.body}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -940,6 +971,7 @@ export default function GroupDetailPage({ id }: { id: number }) {
         <div className="hidden lg:block w-72 shrink-0 space-y-4 sticky top-20">
           {/* Join requests panel — owner only */}
           {isOwner && group.private && <JoinRequestsPanel groupId={id} />}
+          <GroupRulesPanel groupId={id} />
           <GroupSearchPanel groupId={id} />
           <RelatedGuides category={group.category} />
         </div>
