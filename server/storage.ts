@@ -170,6 +170,28 @@ export interface IStorage {
   markAllNotificationsRead(userId: number): Promise<void>;
   deleteNotification(id: number, userId: number): Promise<void>;
 
+  // Marketplace: view history + recommendations
+  recordListingView(listingId: number, userId?: number, sessionId?: string): Promise<void>;
+  getRecentlyViewed(userId?: number, sessionId?: string, limit?: number): Promise<any[]>;
+  getRecommendations(userId?: number, sessionId?: string, excludeIds?: number[], limit?: number): Promise<any[]>;
+  getSimilarListings(listingId: number, limit?: number): Promise<any[]>;
+
+  // Saved searches
+  listSavedSearches(userId: number): Promise<any[]>;
+  createSavedSearch(userId: number, data: { name: string; query?: string; filters: any; notify?: boolean }): Promise<any>;
+  deleteSavedSearch(id: number, userId: number): Promise<void>;
+  updateSavedSearch(id: number, userId: number, data: Partial<{ name: string; notify: boolean; filters: any }>): Promise<any>;
+
+  // Saved lists
+  listSavedLists(userId: number): Promise<any[]>;
+  createSavedList(userId: number, data: { name: string; emoji?: string }): Promise<any>;
+  deleteSavedList(id: number, userId: number): Promise<void>;
+  getOrCreateWatchlist(userId: number): Promise<any>;
+  addToList(listId: number, listingId: number, note?: string): Promise<void>;
+  removeFromList(listId: number, listingId: number): Promise<void>;
+  getListItems(listId: number): Promise<any[]>;
+  isInAnyList(userId: number, listingId: number): Promise<{ saved: boolean; lists: number[] }>;
+
   // Global search
   searchAll(query: string): Promise<{
     listings: any[];
@@ -770,6 +792,192 @@ export class SupabaseStorage implements IStorage {
   }
 
   // ──────────────────────────────────────────────────────────
+  // MARKETPLACE — VIEW HISTORY + RECOMMENDATIONS + SAVED
+  // ──────────────────────────────────────────────────────────
+
+  async recordListingView(listingId: number, userId?: number, sessionId?: string): Promise<void> {
+    const listing = await this.getListing(listingId);
+    if (!listing) return;
+    await supabaseAdmin.from("listing_views").insert({
+      listing_id: listingId,
+      user_id: userId || null,
+      session_id: sessionId || null,
+      category: listing.category,
+      price: listing.price,
+      make: listing.make,
+    }).select().single().catch(() => null);
+  }
+
+  async getRecentlyViewed(userId?: number, sessionId?: string, limit = 10): Promise<any[]> {
+    let query = supabaseAdmin.from("listing_views").select("listing_id").order("viewed_at", { ascending: false }).limit(limit * 3);
+    if (userId) query = query.eq("user_id", userId);
+    else if (sessionId) query = query.eq("session_id", sessionId);
+    else return [];
+    const { data } = await query;
+    const seen = new Set<number>();
+    const ids: number[] = [];
+    for (const row of (data || [])) {
+      if (!seen.has(row.listing_id)) { seen.add(row.listing_id); ids.push(row.listing_id); }
+      if (ids.length >= limit) break;
+    }
+    if (!ids.length) return [];
+    const { data: listings } = await supabaseAdmin.from("listings").select("*").in("id", ids).eq("status", "active");
+    return (listings || []).map(this.mapListing.bind(this));
+  }
+
+  async getRecommendations(userId?: number, sessionId?: string, excludeIds: number[] = [], limit = 12): Promise<any[]> {
+    // Build affinity from view history
+    let histQuery = supabaseAdmin.from("listing_views").select("category, make, price").order("viewed_at", { ascending: false }).limit(50);
+    if (userId) histQuery = histQuery.eq("user_id", userId);
+    else if (sessionId) histQuery = histQuery.eq("session_id", sessionId);
+    const { data: history } = await histQuery;
+    const rows = history || [];
+    // Count category + make frequency
+    const catCount: Record<string, number> = {};
+    const makeCount: Record<string, number> = {};
+    let totalPrice = 0; let priceCount = 0;
+    for (const r of rows) {
+      if (r.category) catCount[r.category] = (catCount[r.category] || 0) + 1;
+      if (r.make) makeCount[r.make] = (makeCount[r.make] || 0) + 1;
+      if (r.price) { totalPrice += r.price; priceCount++; }
+    }
+    const topCat = Object.entries(catCount).sort((a, b) => b[1] - a[1]).map(e => e[0]).slice(0, 3);
+    const topMake = Object.entries(makeCount).sort((a, b) => b[1] - a[1]).map(e => e[0]).slice(0, 2);
+    const avgPrice = priceCount > 0 ? totalPrice / priceCount : 0;
+
+    let results: any[] = [];
+    // 1. Same make (highest affinity)
+    if (topMake.length && results.length < limit) {
+      let q = supabaseAdmin.from("listings").select("*").eq("status", "active").in("make", topMake).order("created_at", { ascending: false }).limit(6);
+      if (excludeIds.length) q = q.not("id", "in", `(${excludeIds.join(",")})`);
+      const { data } = await q;
+      results.push(...(data || []).map(this.mapListing.bind(this)));
+    }
+    // 2. Same categories
+    if (topCat.length && results.length < limit) {
+      let q = supabaseAdmin.from("listings").select("*").eq("status", "active").in("category", topCat).order("created_at", { ascending: false }).limit(8);
+      if (excludeIds.length) q = q.not("id", "in", `(${excludeIds.join(",")})`);
+      const { data } = await q;
+      for (const l of (data || [])) {
+        if (!results.find((x: any) => x.id === l.id)) results.push(this.mapListing(l));
+        if (results.length >= limit) break;
+      }
+    }
+    // 3. Similar price range (±40%)
+    if (avgPrice > 0 && results.length < limit) {
+      let q = supabaseAdmin.from("listings").select("*").eq("status", "active")
+        .gte("price", avgPrice * 0.6).lte("price", avgPrice * 1.4)
+        .order("created_at", { ascending: false }).limit(6);
+      if (excludeIds.length) q = q.not("id", "in", `(${excludeIds.join(",")})`);
+      const { data } = await q;
+      for (const l of (data || [])) {
+        if (!results.find((x: any) => x.id === l.id)) results.push(this.mapListing(l));
+        if (results.length >= limit) break;
+      }
+    }
+    // 4. Fallback: featured + recent
+    if (results.length < limit) {
+      const { data } = await supabaseAdmin.from("listings").select("*").eq("status", "active").order("featured", { ascending: false }).order("created_at", { ascending: false }).limit(limit);
+      for (const l of (data || [])) {
+        if (!results.find((x: any) => x.id === l.id)) results.push(this.mapListing(l));
+        if (results.length >= limit) break;
+      }
+    }
+    return results.filter((l: any) => !excludeIds.includes(l.id)).slice(0, limit);
+  }
+
+  async getSimilarListings(listingId: number, limit = 6): Promise<any[]> {
+    const listing = await this.getListing(listingId);
+    if (!listing) return [];
+    let q = supabaseAdmin.from("listings").select("*").eq("status", "active").neq("id", listingId).limit(limit * 2);
+    // Match category + price range
+    if (listing.category) q = q.eq("category", listing.category);
+    const { data } = await q;
+    const scored = (data || []).map((l: any) => {
+      let score = 0;
+      if (listing.make && l.make === listing.make) score += 10;
+      if (listing.model && l.model === listing.model) score += 5;
+      const priceDiff = Math.abs(l.price - listing.price) / listing.price;
+      if (priceDiff < 0.2) score += 8;
+      else if (priceDiff < 0.4) score += 4;
+      if (listing.year && l.year && Math.abs(l.year - listing.year) <= 3) score += 3;
+      return { ...this.mapListing(l), _score: score };
+    });
+    return scored.sort((a: any, b: any) => b._score - a._score).slice(0, limit);
+  }
+
+  async listSavedSearches(userId: number): Promise<any[]> {
+    const { data } = await supabaseAdmin.from("saved_searches").select("*").eq("user_id", userId).order("created_at", { ascending: false });
+    return data || [];
+  }
+
+  async createSavedSearch(userId: number, data: { name: string; query?: string; filters: any; notify?: boolean }): Promise<any> {
+    const { data: row, error } = await supabaseAdmin.from("saved_searches").insert({
+      user_id: userId, name: data.name, query: data.query || null,
+      filters: data.filters || {}, notify: data.notify !== false,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    return row;
+  }
+
+  async deleteSavedSearch(id: number, userId: number): Promise<void> {
+    await supabaseAdmin.from("saved_searches").delete().eq("id", id).eq("user_id", userId);
+  }
+
+  async updateSavedSearch(id: number, userId: number, data: any): Promise<any> {
+    const { data: row } = await supabaseAdmin.from("saved_searches").update(data).eq("id", id).eq("user_id", userId).select().single();
+    return row;
+  }
+
+  async listSavedLists(userId: number): Promise<any[]> {
+    const { data } = await supabaseAdmin.from("saved_lists").select("*, item_count:saved_list_items(count)").eq("user_id", userId).order("is_default", { ascending: false }).order("created_at", { ascending: true });
+    return (data || []).map((l: any) => ({ ...l, itemCount: l.item_count?.[0]?.count ?? 0 }));
+  }
+
+  async createSavedList(userId: number, data: { name: string; emoji?: string }): Promise<any> {
+    const { data: row, error } = await supabaseAdmin.from("saved_lists").insert({
+      user_id: userId, name: data.name, emoji: data.emoji || '📋', is_default: false,
+    }).select().single();
+    if (error) throw new Error(error.message);
+    return row;
+  }
+
+  async deleteSavedList(id: number, userId: number): Promise<void> {
+    await supabaseAdmin.from("saved_list_items").delete().eq("list_id", id);
+    await supabaseAdmin.from("saved_lists").delete().eq("id", id).eq("user_id", userId).eq("is_default", false);
+  }
+
+  async getOrCreateWatchlist(userId: number): Promise<any> {
+    const { data: existing } = await supabaseAdmin.from("saved_lists").select("*").eq("user_id", userId).eq("is_default", true).single();
+    if (existing) return existing;
+    const { data, error } = await supabaseAdmin.from("saved_lists").insert({ user_id: userId, name: "Watchlist", emoji: "❤️", is_default: true }).select().single();
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  async addToList(listId: number, listingId: number, note?: string): Promise<void> {
+    await supabaseAdmin.from("saved_list_items").upsert({ list_id: listId, listing_id: listingId, note: note || null }, { onConflict: "list_id,listing_id" }).select().single().catch(() => null);
+  }
+
+  async removeFromList(listId: number, listingId: number): Promise<void> {
+    await supabaseAdmin.from("saved_list_items").delete().eq("list_id", listId).eq("listing_id", listingId);
+  }
+
+  async getListItems(listId: number): Promise<any[]> {
+    const { data } = await supabaseAdmin.from("saved_list_items").select("*, listing:listings(*)").eq("list_id", listId).order("added_at", { ascending: false });
+    return (data || []).map((item: any) => ({ ...item, listing: item.listing ? this.mapListing(item.listing) : null }));
+  }
+
+  async isInAnyList(userId: number, listingId: number): Promise<{ saved: boolean; lists: number[] }> {
+    const { data: userLists } = await supabaseAdmin.from("saved_lists").select("id").eq("user_id", userId);
+    if (!userLists?.length) return { saved: false, lists: [] };
+    const listIds = userLists.map((l: any) => l.id);
+    const { data } = await supabaseAdmin.from("saved_list_items").select("list_id").in("list_id", listIds).eq("listing_id", listingId);
+    const savedLists = (data || []).map((r: any) => r.list_id);
+    return { saved: savedLists.length > 0, lists: savedLists };
+  }
+
+  // ──────────────────────────────────────────────────────────
   // NOTIFICATIONS
   // ──────────────────────────────────────────────────────────
 
@@ -866,18 +1074,25 @@ export class SupabaseStorage implements IStorage {
     };
   }
 
-  async searchListings(query: string, filters?: { category?: string; minPrice?: number; maxPrice?: number; condition?: string; location?: string; sort?: string }) {
+  async searchListings(query: string, filters?: { category?: string; minPrice?: number; maxPrice?: number; condition?: string; location?: string; sort?: string; minYear?: number; maxYear?: number; make?: string; model?: string; minMileage?: number; maxMileage?: number }) {
     const q = `%${query}%`;
     let qb = supabaseAdmin.from("listings").select("*").eq("status", "active");
     if (query) qb = qb.or(`title.ilike.${q},description.ilike.${q},make.ilike.${q},model.ilike.${q},location.ilike.${q}`);
     if (filters?.category) qb = qb.eq("category", filters.category);
     if (filters?.condition) qb = qb.eq("condition", filters.condition);
     if (filters?.location) qb = qb.ilike("location", `%${filters.location}%`);
+    if (filters?.make) qb = qb.ilike("make", `%${filters.make}%`);
+    if (filters?.model) qb = qb.ilike("model", `%${filters.model}%`);
     if (filters?.minPrice !== undefined) qb = qb.gte("price", filters.minPrice);
     if (filters?.maxPrice !== undefined) qb = qb.lte("price", filters.maxPrice);
+    if (filters?.minYear !== undefined) qb = qb.gte("year", filters.minYear);
+    if (filters?.maxYear !== undefined) qb = qb.lte("year", filters.maxYear);
+    if (filters?.minMileage !== undefined) qb = qb.gte("mileage", filters.minMileage);
+    if (filters?.maxMileage !== undefined) qb = qb.lte("mileage", filters.maxMileage);
     if (filters?.sort === "price_asc") qb = qb.order("price", { ascending: true });
     else if (filters?.sort === "price_desc") qb = qb.order("price", { ascending: false });
     else if (filters?.sort === "newest") qb = qb.order("created_at", { ascending: false });
+    else if (filters?.sort === "mileage_asc") qb = qb.order("mileage", { ascending: true });
     else qb = qb.order("featured", { ascending: false }).order("created_at", { ascending: false });
     const { data } = await qb.limit(100);
     return (data || []).map(this.mapListing.bind(this));
@@ -1283,6 +1498,63 @@ export class MemStorage implements IStorage {
   }
   async listPendingJoinRequests(groupId: number): Promise<any[]> {
     return Array.from(this._joinRequests.values()).filter(r => r.groupId === groupId && r.status === 'pending');
+  }
+
+  // ── Marketplace stubs for MemStorage ──
+  private _views: any[] = [];
+  private _savedSearches: Map<number, any> = new Map(); private _ssId = 1;
+  private _savedLists: Map<number, any> = new Map(); private _slId = 1;
+  private _listItems: Map<string, any> = new Map();
+
+  async recordListingView(listingId: number, userId?: number, sessionId?: string): Promise<void> {
+    const l = this.listings.get(listingId);
+    this._views.unshift({ listingId, userId, sessionId, category: l?.category, make: (l as any)?.make, price: l?.price, viewedAt: new Date().toISOString() });
+    if (this._views.length > 200) this._views.pop();
+  }
+  async getRecentlyViewed(userId?: number, sessionId?: string, limit = 10): Promise<any[]> {
+    const seen = new Set<number>(); const ids: number[] = [];
+    for (const v of this._views) {
+      if ((userId && v.userId === userId) || (sessionId && v.sessionId === sessionId)) {
+        if (!seen.has(v.listingId)) { seen.add(v.listingId); ids.push(v.listingId); }
+        if (ids.length >= limit) break;
+      }
+    }
+    return ids.map(id => this.listings.get(id)).filter(Boolean) as any[];
+  }
+  async getRecommendations(userId?: number, sessionId?: string, excludeIds: number[] = [], limit = 12): Promise<any[]> {
+    const recent = this._views.filter(v => (userId && v.userId === userId) || (sessionId && v.sessionId === sessionId)).slice(0, 30);
+    const cats = [...new Set(recent.map(v => v.category).filter(Boolean))];
+    let results = Array.from(this.listings.values()).filter(l => l.status === 'active' && !excludeIds.includes(l.id));
+    if (cats.length) results = results.filter(l => cats.includes(l.category));
+    return results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, limit);
+  }
+  async getSimilarListings(listingId: number, limit = 6): Promise<any[]> {
+    const l = this.listings.get(listingId);
+    if (!l) return [];
+    return Array.from(this.listings.values()).filter(x => x.id !== listingId && x.status === 'active' && x.category === l.category).slice(0, limit);
+  }
+  async listSavedSearches(userId: number): Promise<any[]> { return Array.from(this._savedSearches.values()).filter(s => s.userId === userId); }
+  async createSavedSearch(userId: number, data: any): Promise<any> { const s = { id: this._ssId++, userId, ...data, createdAt: new Date().toISOString() }; this._savedSearches.set(s.id, s); return s; }
+  async deleteSavedSearch(id: number, _userId: number): Promise<void> { this._savedSearches.delete(id); }
+  async updateSavedSearch(id: number, _userId: number, data: any): Promise<any> { const s = { ...this._savedSearches.get(id), ...data }; this._savedSearches.set(id, s); return s; }
+  async listSavedLists(userId: number): Promise<any[]> { return Array.from(this._savedLists.values()).filter(l => l.userId === userId); }
+  async createSavedList(userId: number, data: any): Promise<any> { const l = { id: this._slId++, userId, ...data, isDefault: false, createdAt: new Date().toISOString() }; this._savedLists.set(l.id, l); return l; }
+  async deleteSavedList(id: number, _userId: number): Promise<void> { this._savedLists.delete(id); }
+  async getOrCreateWatchlist(userId: number): Promise<any> {
+    const existing = Array.from(this._savedLists.values()).find(l => l.userId === userId && l.isDefault);
+    if (existing) return existing;
+    const wl = { id: this._slId++, userId, name: 'Watchlist', emoji: '❤️', isDefault: true, createdAt: new Date().toISOString() };
+    this._savedLists.set(wl.id, wl); return wl;
+  }
+  async addToList(listId: number, listingId: number, note?: string): Promise<void> { this._listItems.set(`${listId}-${listingId}`, { listId, listingId, note, addedAt: new Date().toISOString() }); }
+  async removeFromList(listId: number, listingId: number): Promise<void> { this._listItems.delete(`${listId}-${listingId}`); }
+  async getListItems(listId: number): Promise<any[]> {
+    return Array.from(this._listItems.values()).filter(i => i.listId === listId).map(i => ({ ...i, listing: this.listings.get(i.listingId) }));
+  }
+  async isInAnyList(userId: number, listingId: number): Promise<{ saved: boolean; lists: number[] }> {
+    const userListIds = Array.from(this._savedLists.values()).filter(l => l.userId === userId).map(l => l.id);
+    const lists = userListIds.filter(lid => this._listItems.has(`${lid}-${listingId}`));
+    return { saved: lists.length > 0, lists };
   }
 
   // ── Notification stubs for MemStorage ──

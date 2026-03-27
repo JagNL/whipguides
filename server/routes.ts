@@ -720,6 +720,143 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ============================================================
+  // MARKETPLACE — RECOMMENDATIONS, SAVED SEARCHES, SAVED LISTS
+  // ============================================================
+
+  // Record a listing view (fire-and-forget, called from listing detail)
+  app.post("/api/listings/:id/view", async (req, res) => {
+    const id = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    const sessionId = req.headers["x-session-id"] as string || undefined;
+    (storage as any).recordListingView(id, currentUser?.id, sessionId).catch(() => {});
+    return res.json({ ok: true });
+  });
+
+  // GET /api/recommendations — personalized feed
+  app.get("/api/recommendations", async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const sessionId = req.headers["x-session-id"] as string || undefined;
+    const excludeIds = req.query.exclude ? (req.query.exclude as string).split(",").map(Number) : [];
+    const recs = await (storage as any).getRecommendations(currentUser?.id, sessionId, excludeIds, 12);
+    // Enrich with seller
+    const enriched = await Promise.all(recs.map(async (l: any) => ({
+      ...l, seller: l.sellerId ? await storage.getUser(l.sellerId) : null,
+    })));
+    return res.json(enriched);
+  });
+
+  // GET /api/recently-viewed
+  app.get("/api/recently-viewed", async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const sessionId = req.headers["x-session-id"] as string || undefined;
+    const listings = await (storage as any).getRecentlyViewed(currentUser?.id, sessionId, 8);
+    const enriched = await Promise.all(listings.map(async (l: any) => ({
+      ...l, seller: l.sellerId ? await storage.getUser(l.sellerId) : null,
+    })));
+    return res.json(enriched);
+  });
+
+  // GET /api/listings/:id/similar
+  app.get("/api/listings/:id/similar", async (req, res) => {
+    const similar = await (storage as any).getSimilarListings(Number(req.params.id), 6);
+    const enriched = await Promise.all(similar.map(async (l: any) => ({
+      ...l, seller: l.sellerId ? await storage.getUser(l.sellerId) : null,
+    })));
+    return res.json(enriched);
+  });
+
+  // ── Saved searches ──
+  app.get("/api/saved-searches", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const searches = await (storage as any).listSavedSearches(currentUser.id);
+    return res.json(searches);
+  });
+
+  app.post("/api/saved-searches", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const { name, query, filters, notify } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: "Name is required" });
+    const search = await (storage as any).createSavedSearch(currentUser.id, { name: name.trim(), query, filters: filters || {}, notify });
+    return res.status(201).json(search);
+  });
+
+  app.patch("/api/saved-searches/:id", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const updated = await (storage as any).updateSavedSearch(Number(req.params.id), currentUser.id, req.body);
+    return res.json(updated);
+  });
+
+  app.delete("/api/saved-searches/:id", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await (storage as any).deleteSavedSearch(Number(req.params.id), currentUser.id);
+    return res.json({ ok: true });
+  });
+
+  // ── Saved lists ──
+  app.get("/api/saved-lists", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const lists = await (storage as any).listSavedLists(currentUser.id);
+    return res.json(lists);
+  });
+
+  app.post("/api/saved-lists", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const { name, emoji } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: "Name is required" });
+    const list = await (storage as any).createSavedList(currentUser.id, { name: name.trim(), emoji });
+    return res.status(201).json(list);
+  });
+
+  app.delete("/api/saved-lists/:id", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    await (storage as any).deleteSavedList(Number(req.params.id), currentUser.id);
+    return res.json({ ok: true });
+  });
+
+  app.get("/api/saved-lists/:id/items", requireAuth, async (req, res) => {
+    const items = await (storage as any).getListItems(Number(req.params.id));
+    return res.json(items);
+  });
+
+  app.post("/api/saved-lists/:id/items", requireAuth, async (req, res) => {
+    const { listingId, note } = req.body;
+    if (!listingId) return res.status(400).json({ error: "listingId required" });
+    await (storage as any).addToList(Number(req.params.id), Number(listingId), note);
+    return res.json({ ok: true });
+  });
+
+  app.delete("/api/saved-lists/:id/items/:listingId", requireAuth, async (req, res) => {
+    await (storage as any).removeFromList(Number(req.params.id), Number(req.params.listingId));
+    return res.json({ ok: true });
+  });
+
+  // Quick-add to watchlist (auto-creates watchlist if needed)
+  app.post("/api/watchlist/toggle", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const { listingId } = req.body;
+    if (!listingId) return res.status(400).json({ error: "listingId required" });
+    const watchlist = await (storage as any).getOrCreateWatchlist(currentUser.id);
+    const { saved } = await (storage as any).isInAnyList(currentUser.id, Number(listingId));
+    // Check specifically in watchlist
+    const items = await (storage as any).getListItems(watchlist.id);
+    const inWatchlist = items.some((i: any) => i.listingId === Number(listingId) || i.listing_id === Number(listingId));
+    if (inWatchlist) {
+      await (storage as any).removeFromList(watchlist.id, Number(listingId));
+      return res.json({ saved: false, listId: watchlist.id });
+    } else {
+      await (storage as any).addToList(watchlist.id, Number(listingId));
+      return res.json({ saved: true, listId: watchlist.id });
+    }
+  });
+
+  // Check if listing is saved in any list
+  app.get("/api/listings/:id/saved-status", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const status = await (storage as any).isInAnyList(currentUser.id, Number(req.params.id));
+    return res.json(status);
+  });
+
+  // ============================================================
   // NOTIFICATIONS
   // ============================================================
 
@@ -773,16 +910,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // GET /api/search/listings — marketplace search with full filters
   app.get("/api/search/listings", async (req, res) => {
-    const { q = "", category, condition, location, minPrice, maxPrice, sort } = req.query;
+    const { q = "", category, condition, location, minPrice, maxPrice, sort, minYear, maxYear, make, model, minMileage, maxMileage } = req.query;
     const results = await (storage as any).searchListings(q as string, {
       category: category as string | undefined,
       condition: condition as string | undefined,
       location: location as string | undefined,
       minPrice: minPrice ? Number(minPrice) : undefined,
       maxPrice: maxPrice ? Number(maxPrice) : undefined,
+      minYear: minYear ? Number(minYear) : undefined,
+      maxYear: maxYear ? Number(maxYear) : undefined,
+      make: make as string | undefined,
+      model: model as string | undefined,
+      minMileage: minMileage ? Number(minMileage) : undefined,
+      maxMileage: maxMileage ? Number(maxMileage) : undefined,
       sort: sort as string | undefined,
     });
-    return res.json(results);
+    // Enrich with seller
+    const enriched = await Promise.all(results.map(async (l: any) => ({
+      ...l, seller: l.sellerId ? await storage.getUser(l.sellerId) : null,
+    })));
+    return res.json(enriched);
   });
 
   // GET /api/groups/:id/search/posts?q=... — search posts within a group

@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,14 +6,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StarRating } from "@/components/StarRating";
 import { Link, useLocation } from "wouter";
-import { useState } from "react";
-import { timeAgo } from "@/lib/utils";
+import { useState, useEffect } from "react";
+import { timeAgo, formatPrice } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import ListingCard from "@/components/ListingCard";
 import {
   MapPin, Eye, Heart, Share2, Flag, ShieldCheck,
   MessageSquare, ChevronLeft, ChevronRight, Clock,
-  Gauge, Calendar, Hash, CheckCircle2
+  Gauge, Calendar, Hash, CheckCircle2, Sparkles,
 } from "lucide-react";
 
 const CONDITION_STYLES: Record<string, string> = {
@@ -29,6 +30,13 @@ export default function ListingDetailPage({ id }: { id: number }) {
   const [, navigate] = useLocation();
   const { user, isAuthenticated } = useAuth();
   const { toast } = useToast();
+
+  // Track this view for recommendations
+  useEffect(() => {
+    if (id) {
+      apiRequest("POST", `/api/listings/${id}/view`).catch(() => {});
+    }
+  }, [id]);
 
   const { mutate: startConversation, isPending: startingConv } = useMutation({
     mutationFn: (sellerId: number) =>
@@ -290,6 +298,32 @@ export default function ListingDetailPage({ id }: { id: number }) {
             </Link>
           )}
         </div>
+      </div>
+
+      {/* Similar Listings */}
+      <SimilarListings listingId={id} />
+    </div>
+  );
+}
+
+function SimilarListings({ listingId }: { listingId: number }) {
+  const { data: similar = [] } = useQuery<any[]>({
+    queryKey: ["/api/listings", listingId, "similar"],
+    queryFn: () => apiRequest("GET", `/api/listings/${listingId}/similar`).then(r => r.json()),
+  });
+
+  if (!similar.length) return null;
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 pb-10">
+      <div className="flex items-center gap-2 mb-4">
+        <Sparkles className="w-4 h-4 text-primary" />
+        <h2 className="font-bold text-base">Similar Listings</h2>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+        {similar.map(l => (
+          <ListingCard key={l.id} listing={l} compact />
+        ))}
       </div>
     </div>
   );
