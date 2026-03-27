@@ -1,13 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
-export function useCfUrl(): string {
-  const { data } = useQuery<{ cfImagesUrl: string }>({
+interface AppConfig {
+  cfImagesUrl: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  googleMapsApiKey: string;
+}
+
+export function useAppConfig(): AppConfig {
+  const { data } = useQuery<AppConfig>({
     queryKey: ["/api/config"],
     queryFn: () => apiRequest("GET", "/api/config").then(r => r.json()),
-    staleTime: Infinity, // never re-fetch — this never changes
+    staleTime: Infinity,
   });
-  return (data?.cfImagesUrl || "").replace(/\/$/, "");
+  return data || { cfImagesUrl: "", supabaseUrl: "", supabaseAnonKey: "", googleMapsApiKey: "" };
+}
+
+export function useCfUrl(): string {
+  const config = useAppConfig();
+  return (config.cfImagesUrl || "").replace(/\/$/, "");
+}
+
+export function useGoogleMapsKey(): string {
+  const config = useAppConfig();
+  return config.googleMapsApiKey || "";
 }
 
 export function cfImageUrl(cfBase: string, imageId: string | null | undefined): string | null {

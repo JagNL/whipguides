@@ -227,100 +227,282 @@ function snapMiles(raw: number): number {
 }
 function milesToKm(mi: number): string { return (mi * 1.609).toFixed(0); }
 
-// ── Leaflet map component — loaded once, never remounts ────────────
-// Uses Leaflet CDN via script injection for smooth pan/zoom/scroll wheel.
-function LeafletMap({
-  lat, lng, radiusMiles,
+// Reverse-geocode a lat/lng to a city, state string using Nominatim
+async function reverseGeocode(lat: number, lng: number): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
+      { headers: { "Accept-Language": "en" } }
+    );
+    const data = await res.json();
+    const a = data.address || {};
+    const STATE_ABBR: Record<string, string> = {
+      Alabama:"AL",Alaska:"AK",Arizona:"AZ",Arkansas:"AR",California:"CA",Colorado:"CO",
+      Connecticut:"CT",Delaware:"DE",Florida:"FL",Georgia:"GA",Hawaii:"HI",Idaho:"ID",
+      Illinois:"IL",Indiana:"IN",Iowa:"IA",Kansas:"KS",Kentucky:"KY",Louisiana:"LA",
+      Maine:"ME",Maryland:"MD",Massachusetts:"MA",Michigan:"MI",Minnesota:"MN",
+      Mississippi:"MS",Missouri:"MO",Montana:"MT",Nebraska:"NE",Nevada:"NV",
+      "New Hampshire":"NH","New Jersey":"NJ","New Mexico":"NM","New York":"NY",
+      "North Carolina":"NC","North Dakota":"ND",Ohio:"OH",Oklahoma:"OK",Oregon:"OR",
+      Pennsylvania:"PA","Rhode Island":"RI","South Carolina":"SC","South Dakota":"SD",
+      Tennessee:"TN",Texas:"TX",Utah:"UT",Vermont:"VT",Virginia:"VA",
+      Washington:"WA","West Virginia":"WV",Wisconsin:"WI",Wyoming:"WY",
+    };
+    const city = a.city || a.town || a.village || a.county || "";
+    const state = a.state ? (STATE_ABBR[a.state] || a.state) : "";
+    return city && state ? `${city}, ${state}` : city || state || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  } catch {
+    return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+  }
+}
+
+// ── Google Maps component ───────────────────────────────────────────
+function GoogleMap({
+  lat, lng, radiusMiles, onDragEnd,
 }: {
   lat: number; lng: number; radiusMiles: number;
+  onDragEnd: (lat: number, lng: number) => void;
 }) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const leafletRef = useRef<any>(null);    // L
-  const mapInstanceRef = useRef<any>(null); // L.Map
+  const mapInstanceRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
+  const circleRef = useRef<any>(null);
+  const [mapType, setMapType] = useState<"roadmap" | "satellite">("roadmap");
+
+  const GOOGLE_API_KEY = useGoogleMapsKey();
+
+  const initMap = useCallback(() => {
+    const G = (window as any).google?.maps;
+    if (!G || !mapRef.current || mapInstanceRef.current) return;
+
+    const map = new G.Map(mapRef.current, {
+      center: { lat, lng },
+      zoom: 11,
+      mapTypeId: mapType,
+      disableDefaultUI: false,
+      zoomControl: true,
+      streetViewControl: false,
+      fullscreenControl: false,
+      mapTypeControl: false, // we build our own toggle
+      styles: [
+        { featureType: "all", elementType: "geometry", stylers: [{ color: "#1a1d27" }] },
+        { featureType: "water", elementType: "geometry", stylers: [{ color: "#0f1117" }] },
+        { featureType: "road", elementType: "geometry", stylers: [{ color: "#2d3048" }] },
+        { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#94a3b8" }] },
+        { featureType: "poi", elementType: "labels", stylers: [{ visibility: "off" }] },
+        { featureType: "transit", elementType: "labels", stylers: [{ visibility: "off" }] },
+        { featureType: "landscape.man_made", elementType: "geometry", stylers: [{ color: "#1e2333" }] },
+        { featureType: "landscape.natural", elementType: "geometry", stylers: [{ color: "#1a2510" }] },
+        { elementType: "labels.text.stroke", stylers: [{ color: "#0f1117" }] },
+      ],
+    });
+    mapInstanceRef.current = map;
+
+    // Draggable marker
+    const marker = new G.Marker({
+      position: { lat, lng },
+      map,
+      draggable: true,
+      icon: {
+        path: G.SymbolPath.CIRCLE,
+        scale: 8,
+        fillColor: "hsl(25, 95%, 53%)",
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2.5,
+      },
+      title: "Drag to change search location",
+      cursor: "grab",
+    });
+    markerRef.current = marker;
+
+    marker.addListener("dragend", () => {
+      const pos = marker.getPosition();
+      onDragEnd(pos.lat(), pos.lng());
+    });
+
+    // Circle
+    if (radiusMiles > 0) {
+      circleRef.current = new G.Circle({
+        map,
+        center: { lat, lng },
+        radius: radiusMiles * 1609.34,
+        strokeColor: "hsl(25, 95%, 53%)",
+        strokeOpacity: 0.8,
+        strokeWeight: 2,
+        fillColor: "hsl(25, 95%, 53%)",
+        fillOpacity: 0.08,
+      });
+      map.fitBounds(circleRef.current.getBounds(), 20);
+    }
+  }, []);
+
+  // Load Google Maps script
+  useEffect(() => {
+    if (!GOOGLE_API_KEY) return;
+    if ((window as any).google?.maps) { initMap(); return; }
+    if (!document.getElementById("google-maps-js")) {
+      const script = document.createElement("script");
+      script.id = "google-maps-js";
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_API_KEY}`;
+      script.async = true;
+      script.defer = true;
+      script.onload = initMap;
+      document.head.appendChild(script);
+    } else {
+      const poll = setInterval(() => {
+        if ((window as any).google?.maps) { clearInterval(poll); initMap(); }
+      }, 100);
+      return () => clearInterval(poll);
+    }
+  }, []);
+
+  // Update circle + marker when radius/position changes
+  useEffect(() => {
+    const G = (window as any).google?.maps;
+    const map = mapInstanceRef.current;
+    if (!G || !map) return;
+
+    if (markerRef.current) markerRef.current.setPosition({ lat, lng });
+
+    if (circleRef.current) { circleRef.current.setMap(null); circleRef.current = null; }
+
+    if (radiusMiles > 0) {
+      circleRef.current = new G.Circle({
+        map,
+        center: { lat, lng },
+        radius: radiusMiles * 1609.34,
+        strokeColor: "hsl(25, 95%, 53%)",
+        strokeOpacity: 0.8,
+        strokeWeight: 2,
+        fillColor: "hsl(25, 95%, 53%)",
+        fillOpacity: 0.08,
+      });
+      map.fitBounds(circleRef.current.getBounds(), 20);
+    } else {
+      map.panTo({ lat, lng });
+      map.setZoom(11);
+    }
+  }, [radiusMiles, lat, lng]);
+
+  // Switch map type
+  useEffect(() => {
+    if (mapInstanceRef.current) mapInstanceRef.current.setMapTypeId(mapType);
+  }, [mapType]);
+
+  return (
+    <div className="relative w-full h-full">
+      <div ref={mapRef} className="w-full h-full" />
+      {/* Map type toggle */}
+      <div className="absolute top-2 left-2 flex gap-1 z-10">
+        {(["roadmap", "satellite"] as const).map(t => (
+          <button key={t} onClick={() => setMapType(t)}
+            className={`text-[10px] font-semibold px-2 py-1 rounded border transition-all backdrop-blur
+              ${mapType === t
+                ? "bg-primary text-white border-primary"
+                : "bg-card/80 text-muted-foreground border-border hover:border-primary/40"}`}>
+            {t === "roadmap" ? "Map" : "Satellite"}
+          </button>
+        ))}
+      </div>
+      {/* Drag hint */}
+      <div className="absolute bottom-2 left-2 bg-card/80 backdrop-blur text-[10px] text-muted-foreground px-1.5 py-0.5 rounded border border-border/50 pointer-events-none">
+        Drag pin to move search center
+      </div>
+    </div>
+  );
+}
+
+// ── Leaflet map (fallback — no API key needed) ──────────────────────
+function LeafletMap({
+  lat, lng, radiusMiles, onDragEnd,
+}: {
+  lat: number; lng: number; radiusMiles: number;
+  onDragEnd: (lat: number, lng: number) => void;
+}) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const leafletRef = useRef<any>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
   const circleRef = useRef<any>(null);
 
-  // Load Leaflet CSS + JS once
+  const onDragEndRef = useRef(onDragEnd);
+  useEffect(() => { onDragEndRef.current = onDragEnd; }, [onDragEnd]);
+
+  const initMap = useCallback(() => {
+    if (!mapRef.current || mapInstanceRef.current) return;
+    const L = (window as any).L;
+    if (!L) return;
+    leafletRef.current = L;
+
+    const map = L.map(mapRef.current, {
+      center: [lat, lng], zoom: 11,
+      zoomControl: true, scrollWheelZoom: true,
+    });
+    mapInstanceRef.current = map;
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      maxZoom: 18,
+    }).addTo(map);
+
+    // Draggable orange marker
+    const icon = L.divIcon({
+      className: "",
+      html: `<div style="width:18px;height:18px;background:hsl(25,95%,53%);border:3px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.5);cursor:grab"></div>`,
+      iconSize: [18, 18], iconAnchor: [9, 9],
+    });
+    const marker = L.marker([lat, lng], { icon, draggable: true }).addTo(map);
+    markerRef.current = marker;
+
+    marker.on("dragend", () => {
+      const p = marker.getLatLng();
+      onDragEndRef.current(p.lat, p.lng);
+    });
+
+    // Show "Drag to move" tooltip
+    marker.bindTooltip("Drag to move search area", { permanent: false, direction: "top", offset: [0, -12] });
+  }, []);
+
+  // Load Leaflet CSS + JS
   useEffect(() => {
     if (!document.getElementById("leaflet-css")) {
       const link = document.createElement("link");
-      link.id = "leaflet-css";
-      link.rel = "stylesheet";
+      link.id = "leaflet-css"; link.rel = "stylesheet";
       link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
       document.head.appendChild(link);
     }
-
-    const initMap = () => {
-      if (!mapRef.current || mapInstanceRef.current) return;
-      const L = (window as any).L;
-      if (!L) return;
-      leafletRef.current = L;
-
-      const map = L.map(mapRef.current, {
-        center: [lat, lng],
-        zoom: 11,
-        zoomControl: true,
-        scrollWheelZoom: true,
-      });
-      mapInstanceRef.current = map;
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 18,
-      }).addTo(map);
-
-      // Custom orange marker
-      const icon = L.divIcon({
-        className: "",
-        html: `<div style="width:16px;height:16px;background:hsl(25 95% 53%);border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.4)"></div>`,
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-      });
-      L.marker([lat, lng], { icon }).addTo(map);
-    };
-
-    if ((window as any).L) {
-      initMap();
-    } else if (!document.getElementById("leaflet-js")) {
+    if ((window as any).L) { initMap(); }
+    else if (!document.getElementById("leaflet-js")) {
       const script = document.createElement("script");
       script.id = "leaflet-js";
       script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
       script.onload = initMap;
       document.head.appendChild(script);
     } else {
-      // Script tag exists but still loading — poll
       const poll = setInterval(() => {
         if ((window as any).L) { clearInterval(poll); initMap(); }
       }, 100);
+      return () => clearInterval(poll);
     }
-
     return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
+      if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
     };
-  }, []); // only on mount
+  }, []);
 
-  // Update circle when radius changes — no remount
+  // Update circle + marker position
   useEffect(() => {
     const L = leafletRef.current;
     const map = mapInstanceRef.current;
     if (!L || !map) return;
-
-    if (circleRef.current) {
-      circleRef.current.remove();
-      circleRef.current = null;
-    }
+    if (markerRef.current) markerRef.current.setLatLng([lat, lng]);
+    if (circleRef.current) { circleRef.current.remove(); circleRef.current = null; }
     if (radiusMiles > 0) {
       circleRef.current = L.circle([lat, lng], {
         radius: radiusMiles * 1609.34,
-        color: "hsl(25, 95%, 53%)",
-        fillColor: "hsl(25, 95%, 53%)",
-        fillOpacity: 0.08,
-        weight: 2,
+        color: "hsl(25, 95%, 53%)", fillColor: "hsl(25, 95%, 53%)",
+        fillOpacity: 0.08, weight: 2,
       }).addTo(map);
-
-      // Fit map to circle bounds smoothly
       map.flyToBounds(circleRef.current.getBounds(), { duration: 0.4, padding: [20, 20] });
     } else {
       map.flyTo([lat, lng], 11, { duration: 0.4 });
@@ -328,14 +510,30 @@ function LeafletMap({
   }, [radiusMiles, lat, lng]);
 
   return (
-    <div
-      ref={mapRef}
-      className="w-full h-full"
-      style={{ minHeight: "208px" }}
-    />
+    <div className="relative w-full h-full">
+      <div ref={mapRef} className="w-full h-full" style={{ minHeight: "208px" }} />
+      <div className="absolute bottom-2 left-2 bg-white/80 text-[10px] text-gray-700 px-1.5 py-0.5 rounded shadow pointer-events-none">
+        Drag pin · scroll to zoom
+      </div>
+    </div>
   );
 }
 
+// ── Unified RadiusMap — uses Google if key present, else Leaflet ────
+function RadiusMap({
+  lat, lng, radiusMiles, onDragEnd,
+}: {
+  lat: number; lng: number; radiusMiles: number;
+  onDragEnd: (lat: number, lng: number) => void;
+}) {
+  const GOOGLE_API_KEY = useGoogleMapsKey();
+  if (GOOGLE_API_KEY) {
+    return <GoogleMap lat={lat} lng={lng} radiusMiles={radiusMiles} onDragEnd={onDragEnd} />;
+  }
+  return <LeafletMap lat={lat} lng={lng} radiusMiles={radiusMiles} onDragEnd={onDragEnd} />;
+}
+
+// ── LocationRadiusBar ────────────────────────────────────────────────
 function LocationRadiusBar({
   locationFilter, searchLat, searchLng, radiusMiles,
   onLocationChange, onRadiusChange, onClear,
@@ -349,6 +547,7 @@ function LocationRadiusBar({
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const hasLocation = !!searchLat;
@@ -368,6 +567,14 @@ function LocationRadiusBar({
     onRadiusChange(snapped === 0 ? "any" : String(snapped));
   };
 
+  // When user drags the marker: reverse-geocode and update location
+  const handleMapDragEnd = useCallback(async (lat: number, lng: number) => {
+    setIsDragging(true);
+    const display = await reverseGeocode(lat, lng);
+    onLocationChange(display, { lat, lng });
+    setIsDragging(false);
+  }, [onLocationChange]);
+
   const activeLabel = hasLocation && currentMiles > 0
     ? `${locationFilter} · ${currentMiles} mi`
     : locationFilter || "Nationwide";
@@ -378,16 +585,14 @@ function LocationRadiusBar({
 
         {/* Collapsed pill */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setOpen(o => !o)}
+          <button onClick={() => setOpen(o => !o)}
             className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-all
               ${open ? "bg-primary/10 border-primary text-primary"
                 : hasLocation ? "bg-secondary border-border hover:border-primary/40 text-foreground"
                 : "bg-secondary border-border hover:border-primary/40 text-muted-foreground"}`}
-            data-testid="button-location-pill"
-          >
+            data-testid="button-location-pill">
             <MapPin className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate max-w-[220px]">{activeLabel}</span>
+            <span className="truncate max-w-[220px]">{isDragging ? "Updating location…" : activeLabel}</span>
             {hasLocation && currentMiles > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />}
             <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
@@ -402,12 +607,17 @@ function LocationRadiusBar({
         {open && (
           <div className="mt-2 mb-1 bg-card border border-border rounded-2xl overflow-hidden shadow-2xl max-w-lg">
 
-            {/* Leaflet map */}
-            <div className="relative w-full bg-muted/30 overflow-hidden" style={{ height: "208px" }}>
+            {/* Map */}
+            <div className="relative overflow-hidden" style={{ height: "220px" }}>
               {hasLocation && searchLat && searchLng !== undefined ? (
-                <LeafletMap lat={searchLat} lng={searchLng} radiusMiles={currentMiles} />
+                <RadiusMap
+                  lat={searchLat}
+                  lng={searchLng}
+                  radiusMiles={currentMiles}
+                  onDragEnd={handleMapDragEnd}
+                />
               ) : (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground bg-muted/20">
                   <MapPin className="w-7 h-7 opacity-20" />
                   <p className="text-xs">Enter a location below to see the map</p>
                 </div>
@@ -418,7 +628,10 @@ function LocationRadiusBar({
 
               {/* Location input */}
               <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Your location</label>
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                  Your location
+                  {isDragging && <span className="ml-2 text-primary normal-case font-normal">Reverse geocoding…</span>}
+                </label>
                 <LocationPicker value={locationFilter} onChange={onLocationChange} placeholder="ZIP code or city" />
                 {locationFilter && !hasLocation && (
                   <p className="text-[10px] text-yellow-400">Pick from the dropdown to pin your location on the map</p>
@@ -431,12 +644,12 @@ function LocationRadiusBar({
                   <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Search radius</label>
                   {hasLocation && currentMiles > 0 ? (
                     <div className="flex items-center gap-2">
-                      <div className="bg-primary/10 border border-primary/30 rounded-lg px-3 py-1 text-center">
+                      <div className="bg-primary/10 border border-primary/30 rounded-lg px-3 py-1">
                         <span className="text-base font-extrabold text-primary">{currentMiles}</span>
                         <span className="text-xs text-primary/80 ml-1">mi</span>
                       </div>
                       <span className="text-muted-foreground text-xs">≈</span>
-                      <div className="bg-secondary border border-border rounded-lg px-2 py-1 text-center">
+                      <div className="bg-secondary border border-border rounded-lg px-2 py-1">
                         <span className="text-sm font-bold">{milesToKm(currentMiles)}</span>
                         <span className="text-xs text-muted-foreground ml-1">km</span>
                       </div>
@@ -446,18 +659,16 @@ function LocationRadiusBar({
                   )}
                 </div>
 
-                {/* Track with snap ticks */}
                 <div className={`relative ${!hasLocation ? "opacity-40 pointer-events-none" : ""}`}>
                   <div className="relative h-2 rounded-full" style={{
                     background: `linear-gradient(to right, hsl(25 95% 53%) ${sliderPct}%, hsl(var(--secondary)) ${sliderPct}%)`
                   }}>
-                    {SNAP_MARKERS.filter(m => m.miles > 0).map(m => {
-                      const pct = (m.miles / MAX_MILES) * 100;
-                      return (
-                        <div key={m.miles} className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-0.5 h-3 rounded-full"
-                          style={{ left: `${pct}%`, background: currentMiles >= m.miles ? "hsl(25 95% 70%)" : "hsl(var(--border))" }} />
-                      );
-                    })}
+                    {SNAP_MARKERS.filter(m => m.miles > 0).map(m => (
+                      <div key={m.miles}
+                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-0.5 h-3 rounded-full"
+                        style={{ left: `${(m.miles / MAX_MILES) * 100}%`, background: currentMiles >= m.miles ? "hsl(25 95% 70%)" : "hsl(var(--border))" }}
+                      />
+                    ))}
                   </div>
                   <input
                     type="range" min={0} max={MAX_MILES} step={1}
@@ -468,7 +679,6 @@ function LocationRadiusBar({
                   />
                 </div>
 
-                {/* Snap label buttons */}
                 <div className="flex justify-between">
                   {SNAP_MARKERS.map(m => (
                     <button key={m.miles}
@@ -477,9 +687,7 @@ function LocationRadiusBar({
                       className={`text-[10px] font-medium px-1 py-0.5 rounded transition-all
                         ${m.miles === currentMiles ? "text-primary bg-primary/10 font-bold" : "text-muted-foreground hover:text-foreground"}
                         ${!hasLocation ? "cursor-not-allowed" : "cursor-pointer"}`}
-                    >
-                      {m.label}
-                    </button>
+                    >{m.label}</button>
                   ))}
                 </div>
 
