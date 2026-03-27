@@ -209,15 +209,41 @@ function SaveSearchModal({ filters, onClose, onSaved }: { filters: any; onClose:
 }
 
 // ── Location + Radius Bar ─────────────────────────────────────────────
-const RADIUS_OPTIONS = [
-  { value: "any",  label: "Nationwide", miles: 0 },
-  { value: "10",   label: "10 mi",      miles: 10 },
-  { value: "25",   label: "25 mi",      miles: 25 },
-  { value: "50",   label: "50 mi",      miles: 50 },
-  { value: "100",  label: "100 mi",     miles: 100 },
-  { value: "250",  label: "250 mi",     miles: 250 },
-  { value: "500",  label: "500 mi",     miles: 500 },
+// Continuous 0–500 mi slider with snap markers at standard distances.
+// Map is fully interactive with zoom in/out buttons + scroll wheel.
+
+// Standard snap markers shown as demarcations on the track
+const SNAP_MARKERS = [
+  { miles: 0,   label: "Any" },
+  { miles: 10,  label: "10" },
+  { miles: 25,  label: "25" },
+  { miles: 50,  label: "50" },
+  { miles: 100, label: "100" },
+  { miles: 250, label: "250" },
+  { miles: 500, label: "500" },
 ];
+const MAX_MILES = 500;
+
+// Snap to nearest marker if within 8 miles of it
+function snapMiles(raw: number): number {
+  const nearest = SNAP_MARKERS.find(m => Math.abs(m.miles - raw) <= 8);
+  return nearest ? nearest.miles : raw;
+}
+
+function milesToKm(mi: number): string {
+  return (mi * 1.609).toFixed(0);
+}
+
+// OSM zoom level that roughly fits the radius
+function radiusToZoom(miles: number): number {
+  if (miles === 0)   return 11;
+  if (miles <= 10)   return 11;
+  if (miles <= 25)   return 10;
+  if (miles <= 50)   return 9;
+  if (miles <= 100)  return 8;
+  if (miles <= 250)  return 7;
+  return 6;
+}
 
 function LocationRadiusBar({
   locationFilter, searchLat, searchLng, radiusMiles,
@@ -232,13 +258,19 @@ function LocationRadiusBar({
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [zoom, setZoom] = useState(10);
   const panelRef = useRef<HTMLDivElement>(null);
-  const hasLocation = !!searchLat;
-  const activeLabel = hasLocation && radiusMiles !== "any"
-    ? `${locationFilter} · ${radiusMiles} mi`
-    : locationFilter || "Nationwide";
 
-  // Close panel on outside click
+  const hasLocation = !!searchLat;
+  const currentMiles = radiusMiles === "any" ? 0 : Math.max(0, Math.min(MAX_MILES, Number(radiusMiles)));
+  const sliderPct = (currentMiles / MAX_MILES) * 100;
+
+  // Keep zoom in sync with radius changes
+  useEffect(() => {
+    setZoom(radiusToZoom(currentMiles));
+  }, [currentMiles]);
+
+  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
@@ -247,14 +279,26 @@ function LocationRadiusBar({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Slider fill %
-  const sliderIdx = Math.max(0, RADIUS_OPTIONS.findIndex(r => r.value === radiusMiles));
-  const sliderPct = sliderIdx === 0 ? 0 : (sliderIdx / (RADIUS_OPTIONS.length - 1)) * 100;
+  const handleSliderChange = (raw: number) => {
+    const snapped = snapMiles(raw);
+    onRadiusChange(snapped === 0 ? "any" : String(snapped));
+  };
 
-  // OSM embed URL — shown when location is pinned
-  const mapUrl = hasLocation && searchLng
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${searchLng - 0.5},${searchLat! - 0.5},${searchLng + 0.5},${searchLat! + 0.5}&layer=mapnik&marker=${searchLat},${searchLng}`
+  const zoomIn  = () => setZoom(z => Math.min(18, z + 1));
+  const zoomOut = () => setZoom(z => Math.max(3, z - 1));
+
+  // Pill label
+  const activeLabel = hasLocation && currentMiles > 0
+    ? `${locationFilter} · ${currentMiles} mi`
+    : locationFilter || "Nationwide";
+
+  // OSM embed
+  const mapUrl = hasLocation && searchLng !== undefined
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${searchLng - 0.01},${searchLat! - 0.01},${searchLng + 0.01},${searchLat! + 0.01}&layer=mapnik&marker=${searchLat},${searchLng}&zoom=${zoom}`
     : null;
+
+  // Circle overlay size: % of map width, capped so it never overflows
+  const circleSize = currentMiles === 0 ? 0 : Math.min(92, Math.max(12, sliderPct * 0.94));
 
   return (
     <div className="border-b border-border bg-background sticky top-[57px] z-30 shadow-sm" ref={panelRef}>
@@ -274,19 +318,14 @@ function LocationRadiusBar({
             data-testid="button-location-pill"
           >
             <MapPin className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate max-w-[200px]">{activeLabel}</span>
-            {hasLocation && radiusMiles !== "any" && (
+            <span className="truncate max-w-[220px]">{activeLabel}</span>
+            {hasLocation && currentMiles > 0 && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
             )}
             <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />
           </button>
-
-          {/* Clear chip */}
-          {(locationFilter || radiusMiles !== "any") && (
-            <button
-              onClick={onClear}
-              className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-0.5 transition-colors"
-            >
+          {(locationFilter || currentMiles > 0) && (
+            <button onClick={onClear} className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-0.5 transition-colors">
               <X className="w-3 h-3" /> Clear
             </button>
           )}
@@ -294,103 +333,169 @@ function LocationRadiusBar({
 
         {/* ── Expanded panel ── */}
         {open && (
-          <div className="mt-2 mb-1 bg-card border border-border rounded-2xl overflow-hidden shadow-xl max-w-xl">
+          <div className="mt-2 mb-1 bg-card border border-border rounded-2xl overflow-hidden shadow-2xl max-w-lg">
 
-            {/* Map */}
-            {mapUrl ? (
-              <div className="relative w-full h-48 bg-muted/30 overflow-hidden">
-                <iframe
-                  src={mapUrl}
-                  title="Search area map"
-                  className="w-full h-full border-0 pointer-events-none"
-                  loading="lazy"
-                />
-                {/* Radius circle overlay */}
-                <div
-                  className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                >
-                  <div
-                    className="rounded-full border-2 border-primary/60 bg-primary/10 transition-all duration-300"
-                    style={{
-                      width: `${Math.min(95, Math.max(20, sliderPct))}%`,
-                      aspectRatio: "1",
-                      maxWidth: "180px",
-                    }}
+            {/* Interactive map */}
+            <div className="relative w-full h-52 bg-muted/30 overflow-hidden select-none">
+              {mapUrl ? (
+                <>
+                  <iframe
+                    key={`${searchLat}-${searchLng}-${zoom}`}
+                    src={mapUrl}
+                    title="Search area map"
+                    className="w-full h-full border-0"
+                    style={{ pointerEvents: "none" }}
+                    loading="lazy"
                   />
-                </div>
-                {/* Center pin */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <MapPin className="w-5 h-5 text-primary drop-shadow-lg" />
-                </div>
-              </div>
-            ) : (
-              /* No location yet — placeholder */
-              <div className="w-full h-32 bg-secondary/50 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                <MapPin className="w-6 h-6 opacity-30" />
-                <p className="text-xs">Enter a location to see the map</p>
-              </div>
-            )}
 
-            <div className="p-4 space-y-4">
+                  {/* Radius circle overlay */}
+                  {currentMiles > 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div
+                        className="rounded-full border-2 border-primary bg-primary/10 transition-all duration-300"
+                        style={{ width: `${circleSize}%`, aspectRatio: "1" }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Center pin */}
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="flex flex-col items-center gap-0.5 drop-shadow-lg">
+                      <MapPin className="w-5 h-5 text-primary" fill="hsl(25 95% 53%)" />
+                    </div>
+                  </div>
+
+                  {/* Zoom controls */}
+                  <div className="absolute top-2 right-2 flex flex-col gap-1">
+                    <button
+                      onClick={zoomIn}
+                      className="w-7 h-7 bg-card/90 backdrop-blur border border-border rounded-lg flex items-center justify-center text-sm font-bold hover:bg-card hover:border-primary/40 transition-all shadow-sm"
+                      title="Zoom in"
+                    >
+                      +
+                    </button>
+                    <button
+                      onClick={zoomOut}
+                      className="w-7 h-7 bg-card/90 backdrop-blur border border-border rounded-lg flex items-center justify-center text-sm font-bold hover:bg-card hover:border-primary/40 transition-all shadow-sm"
+                      title="Zoom out"
+                    >
+                      −
+                    </button>
+                  </div>
+
+                  {/* Zoom level badge */}
+                  <div className="absolute bottom-2 right-2 bg-card/80 backdrop-blur text-[10px] text-muted-foreground px-1.5 py-0.5 rounded border border-border/50">
+                    zoom {zoom}
+                  </div>
+                </>
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                  <MapPin className="w-7 h-7 opacity-20" />
+                  <p className="text-xs">Enter a location below to see the map</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 space-y-5">
+
               {/* Location input */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Your location
-                </label>
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Your location</label>
                 <LocationPicker
                   value={locationFilter}
                   onChange={onLocationChange}
                   placeholder="ZIP code or city"
                 />
                 {locationFilter && !hasLocation && (
-                  <p className="text-[10px] text-yellow-400">Select a suggestion from the dropdown to pin your location</p>
+                  <p className="text-[10px] text-yellow-400">Pick from the dropdown to pin your location on the map</p>
                 )}
               </div>
 
               {/* Radius slider */}
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    Search radius
-                  </label>
-                  <span className={`text-sm font-bold ${hasLocation && radiusMiles !== "any" ? "text-primary" : "text-muted-foreground"}`}>
-                    {hasLocation && radiusMiles !== "any" ? `${radiusMiles} miles` : "Nationwide"}
-                  </span>
+                  <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Search radius</label>
+
+                  {/* Distance calculator display */}
+                  {hasLocation && currentMiles > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <div className="bg-primary/10 border border-primary/30 rounded-lg px-3 py-1 text-center">
+                        <span className="text-base font-extrabold text-primary">{currentMiles}</span>
+                        <span className="text-xs text-primary/80 ml-1">mi</span>
+                      </div>
+                      <div className="text-muted-foreground text-xs">≈</div>
+                      <div className="bg-secondary border border-border rounded-lg px-2 py-1 text-center">
+                        <span className="text-sm font-bold">{milesToKm(currentMiles)}</span>
+                        <span className="text-xs text-muted-foreground ml-1">km</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <span className="text-sm font-bold text-muted-foreground">Nationwide</span>
+                  )}
                 </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={RADIUS_OPTIONS.length - 1}
-                  step={1}
-                  value={sliderIdx}
-                  onChange={e => onRadiusChange(RADIUS_OPTIONS[Number(e.target.value)].value)}
-                  disabled={!hasLocation}
-                  className="w-full h-2 rounded-full appearance-none cursor-pointer disabled:cursor-not-allowed"
-                  style={{
-                    background: `linear-gradient(to right, hsl(25 95% 53%) ${sliderPct}%, hsl(var(--secondary)) ${sliderPct}%)`,
-                  }}
-                />
-                {/* Tick buttons */}
-                <div className="flex justify-between">
-                  {RADIUS_OPTIONS.map(o => (
-                    <button
-                      key={o.value}
-                      onClick={() => hasLocation && onRadiusChange(o.value)}
-                      disabled={!hasLocation}
-                      className={`text-[10px] transition-colors px-0.5
-                        ${o.value === radiusMiles ? "text-primary font-bold" : "text-muted-foreground hover:text-foreground"}
-                        ${!hasLocation ? "opacity-40 cursor-not-allowed" : "cursor-pointer"}`}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
+
+                {/* Slider track with snap markers */}
+                <div className={`relative ${!hasLocation ? "opacity-40 pointer-events-none" : ""}`}>
+                  {/* Snap marker ticks on the track */}
+                  <div className="relative h-2 rounded-full mb-1" style={{
+                    background: `linear-gradient(to right, hsl(25 95% 53%) ${sliderPct}%, hsl(var(--secondary)) ${sliderPct}%)`
+                  }}>
+                    {SNAP_MARKERS.filter(m => m.miles > 0).map(m => {
+                      const pct = (m.miles / MAX_MILES) * 100;
+                      const isActive = currentMiles >= m.miles;
+                      return (
+                        <div
+                          key={m.miles}
+                          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-1 h-3 rounded-full transition-colors"
+                          style={{
+                            left: `${pct}%`,
+                            background: isActive ? "hsl(25 95% 70%)" : "hsl(var(--border))",
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  <input
+                    type="range"
+                    min={0}
+                    max={MAX_MILES}
+                    step={1}
+                    value={currentMiles}
+                    onChange={e => handleSliderChange(Number(e.target.value))}
+                    disabled={!hasLocation}
+                    className="absolute inset-0 w-full h-2 opacity-0 cursor-pointer"
+                  />
                 </div>
+
+                {/* Snap marker labels */}
+                <div className="flex justify-between px-0 -mt-1">
+                  {SNAP_MARKERS.map(m => {
+                    const isActive = m.miles === currentMiles;
+                    return (
+                      <button
+                        key={m.miles}
+                        onClick={() => hasLocation && onRadiusChange(m.miles === 0 ? "any" : String(m.miles))}
+                        disabled={!hasLocation}
+                        className={`text-[10px] font-medium transition-all px-1 py-0.5 rounded
+                          ${isActive
+                            ? "text-primary bg-primary/10 font-bold"
+                            : "text-muted-foreground hover:text-foreground"
+                          }
+                          ${!hasLocation ? "cursor-not-allowed" : "cursor-pointer"}`}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
                 {!hasLocation && (
-                  <p className="text-[10px] text-muted-foreground">Set a location above to enable radius filtering</p>
+                  <p className="text-[10px] text-muted-foreground text-center">Set a location above to enable radius filtering</p>
                 )}
               </div>
 
-              {/* Done button */}
+              {/* Apply */}
               <div className="flex justify-end">
                 <Button size="sm" onClick={() => setOpen(false)} className="gap-1.5">
                   <Search className="w-3.5 h-3.5" /> Apply
