@@ -143,8 +143,8 @@ function CampaignWizard({ open, onClose }: { open: boolean; onClose: () => void 
     budgetType: "daily", budgetAmount: "10", bidType: "cpm", bidAmount: "2.00",
     startDate: "", endDate: "",
     targetCategories: [] as string[],
-    targetVehicleMakes: [] as string[],
     targetLocations: "",
+    customInterest: "",
   });
 
   const createCampaign = useMutation({
@@ -178,13 +178,10 @@ function CampaignWizard({ open, onClose }: { open: boolean; onClose: () => void 
     }));
   };
 
-  const toggleMake = (make: string) => {
-    setForm(f => ({
-      ...f,
-      targetVehicleMakes: f.targetVehicleMakes.includes(make)
-        ? f.targetVehicleMakes.filter(m => m !== make)
-        : [...f.targetVehicleMakes, make],
-    }));
+  const addCustomInterest = () => {
+    const trimmed = form.customInterest.trim();
+    if (!trimmed || form.targetCategories.includes(trimmed)) return;
+    setForm(f => ({ ...f, targetCategories: [...f.targetCategories, trimmed], customInterest: "" }));
   };
 
   return (

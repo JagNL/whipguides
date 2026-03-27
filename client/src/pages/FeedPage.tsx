@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { GuideEmbedCard } from "@/components/GuideEmbedCard";
 import ReportButton from "@/components/ReportButton";
 import { useCfUrl } from "@/hooks/use-cf-url";
 import {
@@ -325,10 +324,16 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
         </div>
       )}
 
-      {/* Guide embed */}
+      {/* Guide link — full embed requires fetching the guide object; show a clickable pill instead */}
       {post.guide_id && (
         <div className="px-4 pb-3">
-          <GuideEmbedCard guideId={post.guide_id} />
+          <Link href={`/guides/${post.guide_id}`}>
+            <div className="flex items-center gap-2 bg-secondary hover:bg-secondary/80 border border-border rounded-xl px-3 py-2.5 cursor-pointer transition-colors">
+              <BookOpen className="w-4 h-4 text-primary shrink-0" />
+              <span className="text-sm font-medium">View attached guide</span>
+              <ChevronRight className="w-4 h-4 text-muted-foreground ml-auto" />
+            </div>
+          </Link>
         </div>
       )}
 
