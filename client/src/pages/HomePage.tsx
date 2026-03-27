@@ -550,13 +550,22 @@ function LocationRadiusBar({
   const [open, setOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  // Track whether a location pick is in-flight so we don't close the panel
+  const pickingLocation = useRef(false);
 
   const hasLocation = !!searchLat;
   const currentMiles = radiusMiles === "any" ? 0 : Math.max(0, Math.min(MAX_MILES, Number(radiusMiles)));
   const sliderPct = (currentMiles / MAX_MILES) * 100;
 
+  // Auto-open panel when location is set from the pill button
+  useEffect(() => {
+    if (searchLat && !open) setOpen(true);
+  }, [searchLat]);
+
+  // Close on outside click — but not while a location pick is in-flight
   useEffect(() => {
     const handler = (e: MouseEvent) => {
+      if (pickingLocation.current) return;
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
@@ -633,7 +642,19 @@ function LocationRadiusBar({
                   Your location
                   {isDragging && <span className="ml-2 text-primary normal-case font-normal">Reverse geocoding…</span>}
                 </label>
-                <LocationPicker value={locationFilter} onChange={onLocationChange} placeholder="ZIP code or city" />
+                <LocationPicker
+                  value={locationFilter}
+                  onChange={(display, coords) => {
+                    // Mark as picking so outside-click handler doesn't close panel
+                    pickingLocation.current = true;
+                    onLocationChange(display, coords);
+                    // Keep panel open after selection — clear flag after paint
+                    requestAnimationFrame(() => {
+                      requestAnimationFrame(() => { pickingLocation.current = false; });
+                    });
+                  }}
+                  placeholder="ZIP code or city"
+                />
                 {locationFilter && !hasLocation && (
                   <p className="text-[10px] text-yellow-400">Pick from the dropdown to pin your location on the map</p>
                 )}
