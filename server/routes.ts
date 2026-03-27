@@ -147,26 +147,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json(enriched);
   });
 
-  app.get("/api/groups/:id", async (req, res) => {
-    const group = await storage.getGroup(Number(req.params.id));
-    if (!group) return res.status(404).json({ error: "Group not found" });
-    const owner = await storage.getUser(group.ownerId);
-    return res.json({ ...group, owner });
-  });
-
-  app.post("/api/groups", requireAuth, async (req, res) => {
-    const currentUser = (req as any).currentUser;
-    if (!currentUser) return res.status(401).json({ error: "Must be logged in to create a group" });
-    try {
-      const group = await storage.createGroup({
-        ...req.body,
-        ownerId: currentUser.id,
-      });
-      return res.status(201).json(group);
-    } catch (err: any) {
-      return res.status(400).json({ error: err.message });
-    }
-  });
+  // ⚠️ These MUST come before /api/groups/:id to avoid Express swallowing 'mine'/'suggested' as an id param
 
   // GET /api/groups/mine — groups the current user belongs to
   app.get("/api/groups/mine", requireAuth, async (req, res) => {
@@ -175,8 +156,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json(groups);
   });
 
-  // GET /api/groups/suggested — groups suggested based on category affinity
-  // Uses the ?categories= query param (comma-separated) from the client
+  // GET /api/groups/suggested — suggested groups based on category affinity
   app.get("/api/groups/suggested", async (req, res) => {
     const { categories, excludeIds } = req.query;
     const catList = categories ? (categories as string).split(",").filter(Boolean) : [];
@@ -208,6 +188,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
     }
     return res.json(groups.slice(0, 6));
+  });
+
+  // GET /api/groups/:id
+  app.get("/api/groups/:id", async (req, res) => {
+    const group = await storage.getGroup(Number(req.params.id));
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    const owner = await storage.getUser(group.ownerId);
+    return res.json({ ...group, owner });
+  });
+
+  // POST /api/groups — create a group
+  app.post("/api/groups", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    if (!currentUser) return res.status(401).json({ error: "Must be logged in to create a group" });
+    try {
+      const group = await storage.createGroup({
+        ...req.body,
+        ownerId: currentUser.id,
+      });
+      return res.status(201).json(group);
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
   });
 
   // Join / leave group
