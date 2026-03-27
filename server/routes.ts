@@ -6,6 +6,7 @@ import { authRouter, requireAuth } from "./auth";
 import { adminRouter, reportRouter } from "./admin";
 import { adsRouter, adminAdsRouter } from "./ads";
 import { uploadRouter } from "./upload";
+import { sendEmail, listingExpiryWarningEmail, listingExpiredEmail, listingSoldConfirmEmail } from "./email";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   // ============================================================
@@ -106,9 +107,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const currentUser = (req as any).currentUser;
     if (!currentUser) return res.status(401).json({ error: "Must be logged in to create a listing" });
     try {
+      // Set expiry: vehicles 60 days, parts/general 30 days
+      const listingType = req.body.listingType || "vehicle";
+      const expiryDays = listingType === "vehicle" ? 60 : 30;
+      const expiresAt = new Date(Date.now() + expiryDays * 86400000).toISOString();
+
+      // Health score: count completeness signals
+      const b = req.body;
+      let health = 0;
+      if (b.title?.trim())       health += 15;
+      if (b.description?.length > 50) health += 20;
+      if (b.images?.length >= 1)  health += 15;
+      if (b.images?.length >= 5)  health += 10;
+      if (b.price > 0)            health += 10;
+      if (b.location?.trim())     health += 10;
+      if (b.latitude)             health += 5;
+      if (b.condition)            health += 5;
+      if (b.year)                 health += 5;
+      if (b.make?.trim())         health += 5;
+
       const listing = await storage.createListing({
         ...req.body,
         sellerId: currentUser.id,
+        expiresAt,
+        healthScore: Math.min(100, health),
       });
       // Keyword check (fire & forget) — flag if match
       import("./ads").then(({ checkKeywords }) => {
@@ -148,6 +170,205 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
     await storage.deleteListing(Number(req.params.id));
     return res.json({ success: true });
+  });
+
+  // ── Refresh (relist) a listing — resets expiry + bumps to top ─
+  app.post("/api/listings/:id/refresh", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const listingId = Number(req.params.id);
+    const listing = await storage.getListing(listingId) as any;
+    if (!listing) return res.status(404).json({ error: "Listing not found" });
+    if (listing.sellerId !== currentUser.id) return res.status(403).json({ error: "Not your listing" });
+
+    const expiryDays = listing.listingType === "vehicle" ? 60 : 30;
+    const newExpiry = new Date(Date.now() + expiryDays * 86400000).toISOString();
+    const now = new Date().toISOString();
+
+    await supabaseAdminForRoutes.from("listings").update({
+      status: "active",
+      expires_at: newExpiry,
+      refreshed_at: now,
+      expiry_warned: false,
+      expiry_warned2: false,
+      bump_count: (listing.bumpCount || 0) + 1,
+      // Reset created_at equivalent via updated_at so it surfaces at top
+      created_at: now,
+    }).eq("id", listingId);
+
+    // Log refresh
+    await supabaseAdminForRoutes.from("listing_refreshes").insert({
+      listing_id: listingId,
+      user_id: currentUser.id,
+      action: req.body.action || "refresh",
+      previous_expires_at: (listing as any).expiresAt,
+      new_expires_at: newExpiry,
+    }).catch(() => {});
+
+    // Notify
+    (storage as any).createNotification({
+      userId: currentUser.id,
+      type: "listing_refresh",
+      title: "Listing refreshed — back to the top!",
+      body: listing.title,
+      linkType: "listing",
+      linkId: listingId,
+    }).catch(() => {});
+
+    return res.json({ success: true, expiresAt: newExpiry });
+  });
+
+  // ── Mark listing as sold ──────────────────────────────────────
+  app.post("/api/listings/:id/sold", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const listingId = Number(req.params.id);
+    const listing = await storage.getListing(listingId) as any;
+    if (!listing) return res.status(404).json({ error: "Listing not found" });
+    if (listing.sellerId !== currentUser.id) return res.status(403).json({ error: "Not your listing" });
+
+    await supabaseAdminForRoutes.from("listings").update({
+      status: "sold",
+      sold_at: new Date().toISOString(),
+    }).eq("id", listingId);
+
+    // Send sold confirmation email
+    const seller = await storage.getUser(currentUser.id);
+    if (seller?.email) {
+      const { subject, html } = listingSoldConfirmEmail({
+        userName: seller.displayName || seller.username || "there",
+        listingTitle: listing.title,
+        price: listing.price,
+      });
+      sendEmail(seller.email, subject, html).catch(() => {});
+    }
+
+    return res.json({ success: true });
+  });
+
+  // ── GET my listings (with expiry + health data) ───────────────
+  app.get("/api/my-listings", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const { status } = req.query;
+    let query = supabaseAdminForRoutes
+      .from("listings")
+      .select("*")
+      .eq("seller_id", currentUser.id)
+      .order("created_at", { ascending: false });
+    if (status) query = query.eq("status", status as string);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json(data || []);
+  });
+
+  // ── Expiry cron endpoint (called by scheduled task) ───────────
+  // GET /api/listings/run-expiry — expire overdue + send warning emails
+  app.post("/api/listings/run-expiry", async (req, res) => {
+    // Basic token check to prevent public abuse
+    const token = req.headers["x-cron-token"] || req.query.token;
+    if (token !== (process.env.CRON_SECRET || "whipguides-cron-2026")) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const now = new Date();
+    const in7Days = new Date(now.getTime() + 7 * 86400000).toISOString();
+    const in3Days = new Date(now.getTime() + 3 * 86400000).toISOString();
+    let expired = 0, warned7 = 0, warned3 = 0;
+
+    // 1. Expire listings past their expires_at
+    const { data: toExpire } = await supabaseAdminForRoutes
+      .from("listings")
+      .select("id, title, price, seller_id, listing_type")
+      .eq("status", "active")
+      .lt("expires_at", now.toISOString());
+
+    for (const l of (toExpire || [])) {
+      await supabaseAdminForRoutes.from("listings").update({ status: "expired" }).eq("id", l.id);
+      expired++;
+
+      const seller = await storage.getUser(l.seller_id);
+      if (seller?.email) {
+        const { subject, html } = listingExpiredEmail({
+          userName: seller.displayName || seller.username || "there",
+          listingTitle: l.title,
+          listingId: l.id,
+          price: l.price,
+        });
+        sendEmail(seller.email, subject, html).catch(() => {});
+      }
+      // In-app notification
+      (storage as any).createNotification({
+        userId: l.seller_id,
+        type: "listing_expired",
+        title: "Listing expired — refresh to relist",
+        body: l.title,
+        linkType: "listing",
+        linkId: l.id,
+      }).catch(() => {});
+    }
+
+    // 2. Warn at 7 days out (first warning)
+    const { data: warn7 } = await supabaseAdminForRoutes
+      .from("listings")
+      .select("id, title, price, seller_id, expires_at")
+      .eq("status", "active")
+      .eq("expiry_warned", false)
+      .lt("expires_at", in7Days);
+
+    for (const l of (warn7 || [])) {
+      const daysLeft = Math.ceil((new Date(l.expires_at).getTime() - now.getTime()) / 86400000);
+      if (daysLeft < 1) continue; // already handled above
+      await supabaseAdminForRoutes.from("listings").update({ expiry_warned: true }).eq("id", l.id);
+      warned7++;
+      const seller = await storage.getUser(l.seller_id);
+      if (seller?.email) {
+        const { subject, html } = listingExpiryWarningEmail({
+          userName: seller.displayName || seller.username || "there",
+          listingTitle: l.title,
+          listingId: l.id,
+          price: l.price,
+          daysLeft,
+          expiresAt: l.expires_at,
+        });
+        sendEmail(seller.email, subject, html).catch(() => {});
+      }
+      (storage as any).createNotification({
+        userId: l.seller_id,
+        type: "listing_expiry_warning",
+        title: `Your listing expires in ${daysLeft} days`,
+        body: `Refresh "${l.title}" to keep it active`,
+        linkType: "listing",
+        linkId: l.id,
+      }).catch(() => {});
+    }
+
+    // 3. Warn again at 3 days out (second warning)
+    const { data: warn3 } = await supabaseAdminForRoutes
+      .from("listings")
+      .select("id, title, price, seller_id, expires_at")
+      .eq("status", "active")
+      .eq("expiry_warned", true)
+      .eq("expiry_warned2", false)
+      .lt("expires_at", in3Days);
+
+    for (const l of (warn3 || [])) {
+      const daysLeft = Math.ceil((new Date(l.expires_at).getTime() - now.getTime()) / 86400000);
+      if (daysLeft < 1) continue;
+      await supabaseAdminForRoutes.from("listings").update({ expiry_warned2: true }).eq("id", l.id);
+      warned3++;
+      const seller = await storage.getUser(l.seller_id);
+      if (seller?.email) {
+        const { subject, html } = listingExpiryWarningEmail({
+          userName: seller.displayName || seller.username || "there",
+          listingTitle: l.title,
+          listingId: l.id,
+          price: l.price,
+          daysLeft,
+          expiresAt: l.expires_at,
+        });
+        sendEmail(seller.email, subject, html).catch(() => {});
+      }
+    }
+
+    return res.json({ expired, warned7, warned3, processedAt: now.toISOString() });
   });
 
   // ============================================================
@@ -1020,7 +1241,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const {
       q = "", category, condition, location, minPrice, maxPrice,
       sort, minYear, maxYear, make, model, minMileage, maxMileage,
-      searchLat, searchLng, radiusMiles,
+      searchLat, searchLng, radiusMiles, datePosted,
     } = req.query;
     const results = await (storage as any).searchListings(q as string, {
       category: category as string | undefined,
@@ -1038,6 +1259,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       searchLat: searchLat ? Number(searchLat) : undefined,
       searchLng: searchLng ? Number(searchLng) : undefined,
       radiusMiles: radiusMiles ? Number(radiusMiles) : undefined,
+      datePosted: datePosted as string | undefined,
     });
     // Enrich with seller
     const enriched = await Promise.all(results.map(async (l: any) => ({

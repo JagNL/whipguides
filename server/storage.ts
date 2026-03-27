@@ -268,6 +268,16 @@ export class SupabaseStorage implements IStorage {
       fitsYearMin: row.fits_year_min,
       fitsYearMax: row.fits_year_max,
       partNumber: row.part_number,
+      // Geo
+      latitude: row.latitude ? Number(row.latitude) : undefined,
+      longitude: row.longitude ? Number(row.longitude) : undefined,
+      // Expiry + freshness
+      expiresAt: row.expires_at,
+      refreshedAt: row.refreshed_at,
+      bumpCount: row.bump_count || 0,
+      healthScore: row.health_score || 0,
+      expiryWarned: row.expiry_warned || false,
+      soldAt: row.sold_at,
     } as any;
   }
 
@@ -401,6 +411,8 @@ export class SupabaseStorage implements IStorage {
       part_number: l.partNumber || null,
       latitude: l.latitude ?? null,
       longitude: l.longitude ?? null,
+      expires_at: l.expiresAt ?? null,
+      health_score: l.healthScore ?? 0,
     }).select().single();
     if (error) throw new Error(error.message);
     return this.mapListing(data);
@@ -1127,6 +1139,18 @@ export class SupabaseStorage implements IStorage {
     if (filters?.listingType) qb = qb.eq("listing_type", filters.listingType);
     if (filters?.fitsMake) qb = qb.ilike("fits_make", `%${filters.fitsMake}%`);
     if (filters?.fitsModel) qb = qb.ilike("fits_model", `%${filters.fitsModel}%`);
+    // Date posted filter
+    if ((filters as any)?.datePosted) {
+      const now = new Date();
+      const cutoffs: Record<string, Date> = {
+        today:     new Date(now.setHours(0, 0, 0, 0)),
+        yesterday: new Date(new Date().setDate(new Date().getDate() - 1)),
+        week:      new Date(Date.now() - 7 * 86400000),
+        month:     new Date(Date.now() - 30 * 86400000),
+      };
+      const cutoff = cutoffs[(filters as any).datePosted];
+      if (cutoff) qb = qb.gte("created_at", cutoff.toISOString());
+    }
     if (filters?.sort === "price_asc") qb = qb.order("price", { ascending: true });
     else if (filters?.sort === "price_desc") qb = qb.order("price", { ascending: false });
     else if (filters?.sort === "newest") qb = qb.order("created_at", { ascending: false });

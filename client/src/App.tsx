@@ -21,6 +21,7 @@ import SearchPage from "@/pages/SearchPage";
 import SavedListsPage from "@/pages/SavedListsPage";
 import AdvertisePage from "@/pages/AdvertisePage";
 import FeedPage from "@/pages/FeedPage";
+import MyListingsPage from "@/pages/MyListingsPage";
 import NotFound from "@/pages/not-found";
 
 export default function App() {
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="/saved" component={() => <Layout><SavedListsPage /></Layout>} />
             <Route path="/advertise" component={() => <Layout><AdvertisePage /></Layout>} />
             <Route path="/feed" component={() => <Layout><FeedPage /></Layout>} />
+            <Route path="/my-listings" component={() => <Layout><MyListingsPage /></Layout>} />
             <Route component={NotFound} />
           </Switch>
         </Router>

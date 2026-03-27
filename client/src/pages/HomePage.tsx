@@ -14,7 +14,7 @@ import {
 import {
   SlidersHorizontal, TrendingUp, Zap, Shield, Search, X, MapPin,
   DollarSign, Bell, BellOff, BookmarkPlus, Clock, Sparkles, ChevronRight,
-  Star, RotateCcw, Save,
+  Star, RotateCcw, Save, RefreshCw, AlertTriangle,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -71,6 +71,14 @@ const SORT_OPTIONS = [
   { value: "price_desc", label: "Price: High → Low" },
   { value: "newest", label: "Newest First" },
   { value: "mileage_asc", label: "Lowest Mileage" },
+];
+
+const DATE_POSTED_OPTIONS = [
+  { value: "any", label: "Any time" },
+  { value: "today", label: "Today" },
+  { value: "yesterday", label: "Yesterday" },
+  { value: "week", label: "Past week" },
+  { value: "month", label: "Past month" },
 ];
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -258,6 +266,7 @@ export default function HomePage() {
       if (activeSearchLat !== undefined) params.set("searchLat", String(activeSearchLat));
       if (activeSearchLng !== undefined) params.set("searchLng", String(activeSearchLng));
       if (activeRadius && activeRadius !== "any") params.set("radiusMiles", activeRadius);
+      if (datePosted !== "any") params.set("datePosted", datePosted);
       return apiRequest("GET", `/api/search/listings?${params.toString()}`).then(r => r.json());
     },
   });
@@ -300,7 +309,7 @@ export default function HomePage() {
     setSearchLat(undefined); setSearchLng(undefined); setRadiusMiles("any");
     setActiveSearchLat(undefined); setActiveSearchLng(undefined); setActiveRadius("any");
     setMake(""); setModel(""); setMinYear(""); setMaxYear("");
-    setMinMileage(""); setMaxMileage(""); setSortBy("default");
+    setMinMileage(""); setMaxMileage(""); setSortBy("default"); setDatePosted("any");
   };
 
   const applySearch = (s: any) => {
@@ -532,6 +541,17 @@ export default function HomePage() {
                       <SelectTrigger className="h-8 text-sm bg-secondary"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {CONDITIONS.map(c => <SelectItem key={c} value={c.toLowerCase()}>{c}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Date Posted
+                    </label>
+                    <Select value={datePosted} onValueChange={setDatePosted}>
+                      <SelectTrigger className="h-8 text-sm bg-secondary"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {DATE_POSTED_OPTIONS.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>

@@ -10,7 +10,7 @@ import {
 import {
   Search, Plus, Sun, Moon, Menu, X,
   Gauge, Users, LogOut, User, MessageSquare,
-  ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone, Rss,
+  ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone, Rss, Tag,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/hooks/use-auth";
@@ -216,6 +216,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <DropdownMenuItem asChild>
                     <Link href="/sell" className="flex items-center gap-2 cursor-pointer">
                       <Plus className="w-4 h-4" /> List an Item
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/my-listings" className="flex items-center gap-2 cursor-pointer">
+                      <Tag className="w-4 h-4" /> My Listings
                     </Link>
                   </DropdownMenuItem>
                   {/* Admin link — shown if user has admin role */}
