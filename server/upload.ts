@@ -1,176 +1,228 @@
+/**
+ * WhipGuides — Upload Server
+ * Uses Cloudflare R2 via S3-compatible API for all image storage.
+ * Falls back to base64 data URLs when R2 is not configured (dev mode).
+ *
+ * Env vars required:
+ *   R2_ACCESS_KEY_ID
+ *   R2_SECRET_ACCESS_KEY
+ *   R2_ENDPOINT        — https://<account-id>.r2.cloudflarestorage.com
+ *   R2_BUCKET          — e.g. whipguides-r2
+ *   CLOUDFLARE_IMAGES_URL — public CDN URL e.g. https://pub-xxx.r2.dev
+ */
+
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { requireAuth } from "./auth";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import sharp from "sharp";
+import { randomUUID } from "crypto";
 
-// In-memory multer (no disk writes — send straight to CF)
+// ── R2 client ──────────────────────────────────────────────────
+const R2_ENDPOINT    = process.env.R2_ENDPOINT || "";
+const R2_BUCKET      = process.env.R2_BUCKET || "whipguides-r2";
+const R2_ACCESS_KEY  = process.env.R2_ACCESS_KEY_ID || "";
+const R2_SECRET_KEY  = process.env.R2_SECRET_ACCESS_KEY || "";
+const PUBLIC_URL     = (process.env.CLOUDFLARE_IMAGES_URL || "").replace(/\/$/, "");
+
+export const isR2Configured = () => !!(R2_ENDPOINT && R2_ACCESS_KEY && R2_SECRET_KEY);
+
+let _s3: S3Client | null = null;
+function getS3(): S3Client {
+  if (!_s3) {
+    _s3 = new S3Client({
+      region: "auto",
+      endpoint: R2_ENDPOINT,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY,
+        secretAccessKey: R2_SECRET_KEY,
+      },
+    });
+  }
+  return _s3;
+}
+
+// ── Multer — memory storage, 10 MB max, images only ───────────
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB hard cap
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith("image/")) cb(null, true);
     else cb(new Error("Only image files are allowed"));
   },
 });
 
-const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
-const CF_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
-const CF_IMAGES_URL = process.env.CLOUDFLARE_IMAGES_URL || "";
+// ── Image compression via sharp ────────────────────────────────
+async function compressImage(
+  buffer: Buffer,
+  mimetype: string,
+  maxWidth = 2000
+): Promise<{ buffer: Buffer; contentType: string }> {
+  try {
+    const img = sharp(buffer).rotate(); // auto-rotate from EXIF
 
-export const isCloudflareConfigured = () => !!(CF_ACCOUNT_ID && CF_API_TOKEN);
+    const meta = await img.metadata();
+    if (meta.width && meta.width > maxWidth) {
+      img.resize({ width: maxWidth, withoutEnlargement: true });
+    }
 
+    // Always output as JPEG (smaller, universally supported)
+    const compressed = await img
+      .jpeg({ quality: 82, progressive: true })
+      .toBuffer();
+
+    return { buffer: compressed, contentType: "image/jpeg" };
+  } catch {
+    // If sharp fails (e.g. unsupported format), pass through original
+    return { buffer, contentType: mimetype };
+  }
+}
+
+// ── Core R2 upload function ────────────────────────────────────
+async function uploadToR2(
+  buffer: Buffer,
+  contentType: string,
+  folder = "uploads"
+): Promise<{ key: string; url: string }> {
+  const ext = contentType === "image/jpeg" ? "jpg"
+    : contentType === "image/png" ? "png"
+    : contentType === "image/webp" ? "webp"
+    : "jpg";
+
+  const key = `${folder}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+
+  await getS3().send(
+    new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+      CacheControl: "public, max-age=31536000, immutable",
+    })
+  );
+
+  const url = PUBLIC_URL ? `${PUBLIC_URL}/${key}` : key;
+  return { key, url };
+}
+
+// ── Router ─────────────────────────────────────────────────────
 export const uploadRouter = Router();
 uploadRouter.use(requireAuth);
 
 // ============================================================
-// POST /api/upload/direct-url
-// Returns a one-time Cloudflare direct upload URL + image ID.
-// The client POSTs the file directly to Cloudflare (bypasses our server).
-// ============================================================
-uploadRouter.post("/direct-url", async (req: Request, res: Response) => {
-  if (!isCloudflareConfigured()) {
-    // Dev fallback — return a fake response so UI still works without CF
-    return res.json({
-      uploadUrl: null,
-      imageId: `dev-${Date.now()}`,
-      devMode: true,
-    });
-  }
-
-  const { metadata } = req.body; // e.g. { type: "listing", userId: 1 }
-
-  const urlBody = new URLSearchParams();
-  urlBody.set("requireSignedURLs", "false");
-  if (metadata) urlBody.set("metadata", JSON.stringify(metadata));
-
-  const cfRes = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${CF_API_TOKEN}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: urlBody.toString(),
-    }
-  );
-
-  const cfData = await cfRes.json() as any;
-
-  if (!cfRes.ok || !cfData.success) {
-    console.error("Cloudflare upload URL error:", cfData.errors);
-    return res.status(500).json({ error: "Failed to get upload URL from Cloudflare" });
-  }
-
-  res.json({
-    uploadUrl: cfData.result.uploadURL,
-    imageId: cfData.result.id,
-    devMode: false,
-  });
-});
-
-// ============================================================
 // POST /api/upload/proxy
-// Server-side proxy: client sends file to us, we forward to Cloudflare.
-// Avoids mobile CORS issues with direct CF uploads.
+// Main upload endpoint — client sends file, server compresses
+// and stores in R2. Returns imageId (key) + cdnUrl.
 // ============================================================
 uploadRouter.post("/proxy", upload.single("file"), async (req: Request, res: Response) => {
   if (!req.file) return res.status(400).json({ error: "No file provided" });
 
-  if (!isCloudflareConfigured()) {
-    // No Cloudflare — encode as base64 data URL so the image still works.
-    // This is the fallback when CF isn't set up yet.
+  // Determine folder from metadata
+  let folder = "uploads";
+  try {
+    const meta = req.body.metadata
+      ? (typeof req.body.metadata === "string" ? JSON.parse(req.body.metadata) : req.body.metadata)
+      : {};
+    if (meta.type === "avatar") folder = "avatars";
+    else if (meta.type === "listing") folder = "listings";
+    else if (meta.type === "cover") folder = "covers";
+    else if (meta.type === "guide") folder = "guides";
+    else if (meta.type === "business") folder = "business";
+  } catch {}
+
+  if (!isR2Configured()) {
+    // Dev fallback — base64 data URL
     const dataUrl = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
-    const fakeId = `data-${Date.now()}`;
-    return res.json({ imageId: fakeId, cdnUrl: dataUrl, devMode: true });
+    return res.json({ imageId: `data-${Date.now()}`, cdnUrl: dataUrl, devMode: true });
   }
 
-  const { metadata } = req.body;
+  try {
+    // Compress before uploading
+    const { buffer, contentType } = await compressImage(req.file.buffer, req.file.mimetype);
+    const { key, url } = await uploadToR2(buffer, contentType, folder);
 
-  // Step 1: Get a direct upload URL from Cloudflare
-  // Use URLSearchParams (application/x-www-form-urlencoded) — more reliable
-  // than FormData for text-only fields with Node's built-in fetch.
-  const urlBody = new URLSearchParams();
-  urlBody.set("requireSignedURLs", "false");
-  if (metadata) urlBody.set("metadata", typeof metadata === "string" ? metadata : JSON.stringify(metadata));
+    res.json({ imageId: key, cdnUrl: url, devMode: false });
+  } catch (err: any) {
+    console.error("R2 upload error:", err);
+    res.status(500).json({ error: "Upload failed", detail: err.message });
+  }
+});
 
-  const cfUrlRes = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v2/direct_upload`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${CF_API_TOKEN}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: urlBody.toString(),
-    }
+// ============================================================
+// POST /api/upload/direct-url
+// Returns a pre-signed PUT URL so the client can upload directly
+// to R2 without going through our server (for large files).
+// ============================================================
+uploadRouter.post("/direct-url", async (req: Request, res: Response) => {
+  if (!isR2Configured()) {
+    return res.json({ uploadUrl: null, imageId: `dev-${Date.now()}`, devMode: true });
+  }
+
+  const { contentType = "image/jpeg", folder = "uploads" } = req.body;
+  const ext = contentType.split("/")[1] || "jpg";
+  const key = `${folder}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+
+  const signedUrl = await getSignedUrl(
+    getS3(),
+    new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+      ContentType: contentType,
+      CacheControl: "public, max-age=31536000, immutable",
+    }),
+    { expiresIn: 300 } // 5 minutes
   );
 
-  const cfUrlData = await cfUrlRes.json() as any;
-  if (!cfUrlRes.ok || !cfUrlData.success) {
-    console.error("CF direct upload URL error (status", cfUrlRes.status, "):", JSON.stringify(cfUrlData));
-    return res.status(500).json({ error: "Failed to get upload URL", detail: cfUrlData?.errors?.[0]?.message });
-  }
-
-  const { uploadURL, id: imageId } = cfUrlData.result;
-
-  // Step 2: Upload the file buffer directly to Cloudflare
-  const fileFormData = new FormData();
-  fileFormData.append(
-    "file",
-    new Blob([req.file.buffer], { type: req.file.mimetype }),
-    req.file.originalname || "avatar.jpg"
-  );
-
-  const cfUploadRes = await fetch(uploadURL, { method: "POST", body: fileFormData });
-  if (!cfUploadRes.ok) {
-    const errText = await cfUploadRes.text();
-    console.error("CF proxy upload error:", errText);
-    return res.status(500).json({ error: "Cloudflare upload failed" });
-  }
-
-  // Step 3: Return the imageId + CDN URL
-  const cdnUrl = CF_IMAGES_URL ? `${CF_IMAGES_URL}/${imageId}/public` : null;
-  res.json({ imageId, cdnUrl, devMode: false });
+  const cdnUrl = PUBLIC_URL ? `${PUBLIC_URL}/${key}` : key;
+  res.json({ uploadUrl: signedUrl, imageId: key, cdnUrl, devMode: false });
 });
 
 // ============================================================
 // GET /api/upload/image-url/:imageId
-// Returns the public CDN URL for a given Cloudflare image ID.
+// Resolves a stored key/id to a public CDN URL.
 // ============================================================
-uploadRouter.get("/image-url/:imageId", (req: Request, res: Response) => {
+uploadRouter.get("/image-url/:imageId(*)", (req: Request, res: Response) => {
   const { imageId } = req.params;
-  const { variant = "public" } = req.query;
+  if (!imageId) return res.json({ url: null });
 
-  if (!CF_IMAGES_URL) {
-    return res.json({ url: null });
+  // Already a full URL (data URI or https)
+  if (imageId.startsWith("data:") || imageId.startsWith("http")) {
+    return res.json({ url: imageId });
   }
 
-  // Cloudflare Images URL format: https://imagedelivery.net/<hash>/<imageId>/<variant>
-  const url = `${CF_IMAGES_URL}/${imageId}/${variant}`;
+  const url = PUBLIC_URL ? `${PUBLIC_URL}/${imageId}` : null;
   res.json({ url });
 });
 
 // ============================================================
-// Helper used by other parts of the app
+// DELETE /api/upload/:key — remove from R2
 // ============================================================
-export function cfImageUrl(imageId: string, variant = "public"): string {
-  if (!imageId || imageId.startsWith("dev-")) return "";
-  if (imageId.startsWith("http")) return imageId; // already a full URL
-  return `${CF_IMAGES_URL}/${imageId}/${variant}`;
+uploadRouter.delete("/:key(*)", async (req: Request, res: Response) => {
+  const { key } = req.params;
+  if (!isR2Configured() || !key) return res.json({ success: true });
+
+  try {
+    await getS3().send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("R2 delete error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================================================
+// Helper exported for other server files
+// ============================================================
+export function cfImageUrl(imageId: string): string {
+  if (!imageId) return "";
+  if (imageId.startsWith("data:") || imageId.startsWith("http")) return imageId;
+  return PUBLIC_URL ? `${PUBLIC_URL}/${imageId}` : imageId;
 }
 
-// DELETE /api/upload/:imageId — admin / owner only cleanup
-uploadRouter.delete("/:imageId", async (req: Request, res: Response) => {
-  const { imageId } = req.params;
-  if (!isCloudflareConfigured()) return res.json({ success: true });
-
-  await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/images/v1/${imageId}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${CF_API_TOKEN}` },
-    }
-  );
-
-  res.json({ success: true });
-});
+// Legacy compat — old code checked isCloudflareConfigured
+export const isCloudflareConfigured = isR2Configured;
