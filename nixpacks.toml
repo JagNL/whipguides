@@ -1,5 +1,0 @@
-[phases.setup]
-nixPkgs = ["vips", "pkg-config"]
-
-[phases.install]
-cmds = ["npm ci --include=optional"]
