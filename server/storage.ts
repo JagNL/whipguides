@@ -466,7 +466,7 @@ export class SupabaseStorage implements IStorage {
       category: group.category,
       cover_image: group.coverImage,
       owner_id: group.ownerId,
-      is_private: group.private || false,
+      private: group.private || false,
     }).select().single();
     if (error) throw new Error(error.message);
     // Auto-add owner as a member
@@ -483,7 +483,7 @@ export class SupabaseStorage implements IStorage {
     if (data.name !== undefined)        updates.name = data.name;
     if (data.description !== undefined) updates.description = data.description;
     if (data.coverImage !== undefined)  updates.cover_image = data.coverImage;
-    if (data.private !== undefined)     updates.is_private = data.private;
+    if (data.private !== undefined)     updates.private = data.private;
     if ((data as any).avatar !== undefined) updates.avatar = (data as any).avatar;
     const { data: row } = await supabaseAdmin.from("groups").update(updates).eq("id", id).select().single();
     return row ? this.mapGroup(row) : undefined;

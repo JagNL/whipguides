@@ -1327,7 +1327,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         id, content, images, guide_id, created_at, likes,
         reaction_counts, share_count, post_type, is_pinned,
         author:author_id(id, username, display_name, avatar, verified, site_role),
-        group:group_id(id, name, avatar, category, is_private),
+        group:group_id(id, name, avatar, category, private),
         business_page:business_page_id(id, name, slug, logo_id, category, verified)
       `;
 
@@ -1336,7 +1336,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const { data: discoverPosts } = await supabaseAdminForRoutes
           .from("posts")
           .select(postSelect)
-          .eq("groups.is_private", false)
+          .eq("groups.private", false)
           .order("created_at", { ascending: false })
           .limit(limit);
         return res.json({ posts: discoverPosts || [], nextCursor: null, isDiscovery: true });
