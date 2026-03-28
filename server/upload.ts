@@ -1,107 +1,165 @@
 /**
- * WhipGuides — Upload Server
- * Uses Cloudflare R2 via S3-compatible API for all image storage.
- * Falls back to base64 data URLs when R2 is not configured (dev mode).
+ * WhipGuides — Upload Server (R2 via native fetch + AWS SigV4)
+ * No external AWS SDK — uses Node.js built-in crypto for signing.
  *
- * Env vars required:
+ * Env vars:
  *   R2_ACCESS_KEY_ID
  *   R2_SECRET_ACCESS_KEY
  *   R2_ENDPOINT        — https://<account-id>.r2.cloudflarestorage.com
- *   R2_BUCKET          — e.g. whipguides-r2
- *   CLOUDFLARE_IMAGES_URL — public CDN URL e.g. https://pub-xxx.r2.dev
+ *   R2_BUCKET          — whipguides-r2
+ *   CLOUDFLARE_IMAGES_URL — https://pub-xxx.r2.dev
  */
 
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { requireAuth } from "./auth";
-import {
-  S3Client,
-  PutObjectCommand,
-  DeleteObjectCommand,
-} from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { createHmac, createHash } from "crypto";
 import { randomUUID } from "crypto";
 
-// ── R2 client ──────────────────────────────────────────────────
-const R2_ENDPOINT    = process.env.R2_ENDPOINT || "";
-const R2_BUCKET      = process.env.R2_BUCKET || "whipguides-r2";
+// ── Config ─────────────────────────────────────────────────────
 const R2_ACCESS_KEY  = process.env.R2_ACCESS_KEY_ID || "";
 const R2_SECRET_KEY  = process.env.R2_SECRET_ACCESS_KEY || "";
+const R2_ENDPOINT    = (process.env.R2_ENDPOINT || "").replace(/\/$/, "");
+const R2_BUCKET      = process.env.R2_BUCKET || "whipguides-r2";
 const PUBLIC_URL     = (process.env.CLOUDFLARE_IMAGES_URL || "").replace(/\/$/, "");
 
 export const isR2Configured = () => !!(R2_ENDPOINT && R2_ACCESS_KEY && R2_SECRET_KEY);
+export const isCloudflareConfigured = isR2Configured; // legacy compat
 
-let _s3: S3Client | null = null;
-function getS3(): S3Client {
-  if (!_s3) {
-    _s3 = new S3Client({
-      region: "auto",
-      endpoint: R2_ENDPOINT,
-      credentials: {
-        accessKeyId: R2_ACCESS_KEY,
-        secretAccessKey: R2_SECRET_KEY,
-      },
-    });
-  }
-  return _s3;
-}
-
-// ── Multer — memory storage, 10 MB max, images only ───────────
+// ── Multer ─────────────────────────────────────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB hard cap
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
   fileFilter: (_req, file, cb) => {
     if (file.mimetype.startsWith("image/")) cb(null, true);
     else cb(new Error("Only image files are allowed"));
   },
 });
 
-// ── Simple pass-through (no native deps needed) ───────────────
-// Sharp compression can be added back once Railway native build is confirmed.
-async function compressImage(
-  buffer: Buffer,
-  mimetype: string,
-): Promise<{ buffer: Buffer; contentType: string }> {
-  // Pass through as-is — multer already enforces 10MB limit
-  return { buffer, contentType: mimetype };
+// ── AWS SigV4 signer (pure Node crypto) ───────────────────────
+function hmac(key: Buffer | string, data: string): Buffer {
+  return createHmac("sha256", key).update(data).digest();
+}
+function sha256hex(data: Buffer | string): string {
+  return createHash("sha256").update(data).digest("hex");
 }
 
-// ── Core R2 upload function ────────────────────────────────────
-async function uploadToR2(
-  buffer: Buffer,
-  contentType: string,
-  folder = "uploads"
-): Promise<{ key: string; url: string }> {
-  const ext = contentType === "image/jpeg" ? "jpg"
-    : contentType === "image/png" ? "png"
-    : contentType === "image/webp" ? "webp"
-    : "jpg";
+async function putToR2(
+  key: string,
+  body: Buffer,
+  contentType: string
+): Promise<void> {
+  const url = `${R2_ENDPOINT}/${R2_BUCKET}/${key}`;
+  const host = new URL(R2_ENDPOINT).host;
+  const now  = new Date();
+  const dateStamp  = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const amzDate    = now.toISOString().replace(/[:\-]|\.\d{3}/g, "").slice(0, 15) + "Z";
+  const region     = "auto";
+  const service    = "s3";
 
-  const key = `${folder}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
+  const payloadHash = sha256hex(body);
 
-  await getS3().send(
-    new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: key,
-      Body: buffer,
-      ContentType: contentType,
-      CacheControl: "public, max-age=31536000, immutable",
-    })
-  );
+  // Canonical request
+  const canonicalHeaders =
+    `content-type:${contentType}\n` +
+    `host:${host}\n` +
+    `x-amz-content-sha256:${payloadHash}\n` +
+    `x-amz-date:${amzDate}\n`;
+  const signedHeaders = "content-type;host;x-amz-content-sha256;x-amz-date";
+  const canonicalUri = `/${R2_BUCKET}/${key}`;
+  const canonicalRequest = [
+    "PUT", canonicalUri, "",
+    canonicalHeaders, signedHeaders, payloadHash,
+  ].join("\n");
 
-  const url = PUBLIC_URL ? `${PUBLIC_URL}/${key}` : key;
-  return { key, url };
+  // String to sign
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256", amzDate, credentialScope,
+    sha256hex(canonicalRequest),
+  ].join("\n");
+
+  // Signing key
+  const kDate    = hmac("AWS4" + R2_SECRET_KEY, dateStamp);
+  const kRegion  = hmac(kDate, region);
+  const kService = hmac(kRegion, service);
+  const kSigning = hmac(kService, "aws4_request");
+  const signature = hmac(kSigning, stringToSign).toString("hex");
+
+  const authorization =
+    `AWS4-HMAC-SHA256 Credential=${R2_ACCESS_KEY}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const res = await fetch(`${url}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": contentType,
+      "Host": host,
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+      "Authorization": authorization,
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`R2 PUT failed ${res.status}: ${text.slice(0, 200)}`);
+  }
+}
+
+async function deleteFromR2(key: string): Promise<void> {
+  const host = new URL(R2_ENDPOINT).host;
+  const now  = new Date();
+  const dateStamp = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const amzDate   = now.toISOString().replace(/[:\-]|\.\d{3}/g, "").slice(0, 15) + "Z";
+  const region = "auto"; const service = "s3";
+
+  const payloadHash = sha256hex("");
+  const canonicalHeaders =
+    `host:${host}\n` +
+    `x-amz-content-sha256:${payloadHash}\n` +
+    `x-amz-date:${amzDate}\n`;
+  const signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  const canonicalUri  = `/${R2_BUCKET}/${key}`;
+  const canonicalRequest = [
+    "DELETE", canonicalUri, "",
+    canonicalHeaders, signedHeaders, payloadHash,
+  ].join("\n");
+
+  const credentialScope = `${dateStamp}/${region}/${service}/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256", amzDate, credentialScope,
+    sha256hex(canonicalRequest),
+  ].join("\n");
+
+  const kDate    = hmac("AWS4" + R2_SECRET_KEY, dateStamp);
+  const kRegion  = hmac(kDate, region);
+  const kService = hmac(kRegion, service);
+  const kSigning = hmac(kService, "aws4_request");
+  const signature = hmac(kSigning, stringToSign).toString("hex");
+
+  const authorization =
+    `AWS4-HMAC-SHA256 Credential=${R2_ACCESS_KEY}/${credentialScope}, ` +
+    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  await fetch(`${R2_ENDPOINT}/${R2_BUCKET}/${key}`, {
+    method: "DELETE",
+    headers: {
+      "Host": host,
+      "x-amz-content-sha256": payloadHash,
+      "x-amz-date": amzDate,
+      "Authorization": authorization,
+    },
+  });
 }
 
 // ── Router ─────────────────────────────────────────────────────
 export const uploadRouter = Router();
 uploadRouter.use(requireAuth);
 
-// ============================================================
 // POST /api/upload/proxy
-// Main upload endpoint — client sends file, server compresses
-// and stores in R2. Returns imageId (key) + cdnUrl.
-// ============================================================
 uploadRouter.post("/proxy", upload.single("file"), async (req: Request, res: Response) => {
   if (!req.file) return res.status(400).json({ error: "No file provided" });
 
@@ -111,10 +169,10 @@ uploadRouter.post("/proxy", upload.single("file"), async (req: Request, res: Res
     const meta = req.body.metadata
       ? (typeof req.body.metadata === "string" ? JSON.parse(req.body.metadata) : req.body.metadata)
       : {};
-    if (meta.type === "avatar") folder = "avatars";
+    if (meta.type === "avatar")   folder = "avatars";
     else if (meta.type === "listing") folder = "listings";
-    else if (meta.type === "cover") folder = "covers";
-    else if (meta.type === "guide") folder = "guides";
+    else if (meta.type === "cover")   folder = "covers";
+    else if (meta.type === "guide")   folder = "guides";
     else if (meta.type === "business") folder = "business";
   } catch {}
 
@@ -125,87 +183,52 @@ uploadRouter.post("/proxy", upload.single("file"), async (req: Request, res: Res
   }
 
   try {
-    // Compress before uploading
-    const { buffer, contentType } = await compressImage(req.file.buffer, req.file.mimetype);
-    const { key, url } = await uploadToR2(buffer, contentType, folder);
+    const ext = req.file.mimetype.split("/")[1] || "jpg";
+    const key = `${folder}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
 
-    res.json({ imageId: key, cdnUrl: url, devMode: false });
+    await putToR2(key, req.file.buffer, req.file.mimetype);
+
+    const cdnUrl = PUBLIC_URL ? `${PUBLIC_URL}/${key}` : null;
+    res.json({ imageId: key, cdnUrl, devMode: false });
   } catch (err: any) {
-    console.error("R2 upload error:", err);
+    console.error("R2 upload error:", err.message);
     res.status(500).json({ error: "Upload failed", detail: err.message });
   }
 });
 
-// ============================================================
-// POST /api/upload/direct-url
-// Returns a pre-signed PUT URL so the client can upload directly
-// to R2 without going through our server (for large files).
-// ============================================================
+// POST /api/upload/direct-url (presigned — simplified for now)
 uploadRouter.post("/direct-url", async (req: Request, res: Response) => {
   if (!isR2Configured()) {
     return res.json({ uploadUrl: null, imageId: `dev-${Date.now()}`, devMode: true });
   }
-
-  const { contentType = "image/jpeg", folder = "uploads" } = req.body;
-  const ext = contentType.split("/")[1] || "jpg";
-  const key = `${folder}/${Date.now()}-${randomUUID().slice(0, 8)}.${ext}`;
-
-  const signedUrl = await getSignedUrl(
-    getS3(),
-    new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: key,
-      ContentType: contentType,
-      CacheControl: "public, max-age=31536000, immutable",
-    }),
-    { expiresIn: 300 } // 5 minutes
-  );
-
-  const cdnUrl = PUBLIC_URL ? `${PUBLIC_URL}/${key}` : key;
-  res.json({ uploadUrl: signedUrl, imageId: key, cdnUrl, devMode: false });
+  // For simplicity, return null uploadUrl — clients should use /proxy instead
+  res.json({ uploadUrl: null, imageId: null, devMode: false, useProxy: true });
 });
 
-// ============================================================
 // GET /api/upload/image-url/:imageId
-// Resolves a stored key/id to a public CDN URL.
-// ============================================================
-uploadRouter.get("/image-url/:imageId(*)", (req: Request, res: Response) => {
+uploadRouter.get("/image-url/*imageId", (req: Request, res: Response) => {
   const { imageId } = req.params;
   if (!imageId) return res.json({ url: null });
-
-  // Already a full URL (data URI or https)
-  if (imageId.startsWith("data:") || imageId.startsWith("http")) {
-    return res.json({ url: imageId });
-  }
-
+  if (imageId.startsWith("data:") || imageId.startsWith("http")) return res.json({ url: imageId });
   const url = PUBLIC_URL ? `${PUBLIC_URL}/${imageId}` : null;
   res.json({ url });
 });
 
-// ============================================================
-// DELETE /api/upload/:key — remove from R2
-// ============================================================
-uploadRouter.delete("/:key(*)", async (req: Request, res: Response) => {
+// DELETE /api/upload/:key
+uploadRouter.delete("/*key", async (req: Request, res: Response) => {
   const { key } = req.params;
   if (!isR2Configured() || !key) return res.json({ success: true });
-
   try {
-    await getS3().send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+    await deleteFromR2(key);
     res.json({ success: true });
   } catch (err: any) {
-    console.error("R2 delete error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ============================================================
 // Helper exported for other server files
-// ============================================================
 export function cfImageUrl(imageId: string): string {
   if (!imageId) return "";
   if (imageId.startsWith("data:") || imageId.startsWith("http")) return imageId;
   return PUBLIC_URL ? `${PUBLIC_URL}/${imageId}` : imageId;
 }
-
-// Legacy compat — old code checked isCloudflareConfigured
-export const isCloudflareConfigured = isR2Configured;
