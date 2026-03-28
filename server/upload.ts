@@ -20,7 +20,6 @@ import {
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import sharp from "sharp";
 import { randomUUID } from "crypto";
 
 // ── R2 client ──────────────────────────────────────────────────
@@ -57,30 +56,14 @@ const upload = multer({
   },
 });
 
-// ── Image compression via sharp ────────────────────────────────
+// ── Simple pass-through (no native deps needed) ───────────────
+// Sharp compression can be added back once Railway native build is confirmed.
 async function compressImage(
   buffer: Buffer,
   mimetype: string,
-  maxWidth = 2000
 ): Promise<{ buffer: Buffer; contentType: string }> {
-  try {
-    const img = sharp(buffer).rotate(); // auto-rotate from EXIF
-
-    const meta = await img.metadata();
-    if (meta.width && meta.width > maxWidth) {
-      img.resize({ width: maxWidth, withoutEnlargement: true });
-    }
-
-    // Always output as JPEG (smaller, universally supported)
-    const compressed = await img
-      .jpeg({ quality: 82, progressive: true })
-      .toBuffer();
-
-    return { buffer: compressed, contentType: "image/jpeg" };
-  } catch {
-    // If sharp fails (e.g. unsupported format), pass through original
-    return { buffer, contentType: mimetype };
-  }
+  // Pass through as-is — multer already enforces 10MB limit
+  return { buffer, contentType: mimetype };
 }
 
 // ── Core R2 upload function ────────────────────────────────────
