@@ -508,7 +508,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
       return res.status(201).json(group);
     } catch (err: any) {
-      console.error("Create group error:", err.message);
+      console.error("Create group error (FULL):", err.message, err.stack);
       // Translate cryptic Supabase errors into friendly messages
       const msg = err.message || "";
       if (msg.includes("duplicate") || msg.includes("unique")) {
@@ -517,7 +517,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (msg.includes("foreign key") || msg.includes("violates")) {
         return res.status(400).json({ error: "Something went wrong linking your account. Please try again." });
       }
-      return res.status(400).json({ error: "Couldn't create the group. Please try again in a moment." });
+      if (msg.includes("column") || msg.includes("does not exist")) {
+        return res.status(400).json({ error: `Database error: ${msg}` });
+      }
+      return res.status(400).json({ error: `Couldn't create the group: ${msg}` });
     }
   });
 

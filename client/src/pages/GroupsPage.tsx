@@ -247,10 +247,12 @@ export default function GroupsPage() {
 
   // ── Mutations ──────────────────────────────────────────────
   const { mutate: createGroup, isPending: creating } = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/groups", {
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/groups", {
         name: name.trim(), description: description.trim(), category, private: isPrivate,
-      }).then(r => r.json()),
+      });
+      return res.json();
+    },
     onSuccess: (group) => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/groups/mine"] });
