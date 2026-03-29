@@ -16,14 +16,15 @@ import {
   CheckCircle2, XCircle, AlertCircle, User,
 } from "lucide-react";
 import { timeAgo, formatPrice, cn } from "@/lib/utils";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, useAppConfig } from "@/hooks/use-cf-url";
 
-// ─── Supabase Realtime ─────────────────────────────────────
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-const realtimeClient = SUPABASE_URL && SUPABASE_ANON
-  ? createClient(SUPABASE_URL, SUPABASE_ANON)
-  : null;
+// Realtime client is initialised lazily per-conversation using config from /api/config
+let _rtClient: ReturnType<typeof createClient> | null = null;
+function getRtClient(url: string, anon: string) {
+  if (!url || !anon) return null;
+  if (!_rtClient) _rtClient = createClient(url, anon, { auth: { persistSession: false } });
+  return _rtClient;
+}
 
 // ─── Types ────────────────────────────────────────────────
 interface Conversation {
@@ -262,6 +263,7 @@ function ConvRow({ conv, isActive, userId, onClick }: {
 // ─── Main MessagesPage ────────────────────────────────────
 export default function MessagesPage({ threadUserId }: { threadUserId?: number }) {
   const { user, isAuthenticated } = useAuth();
+  const config = useAppConfig();
   const [, navigate] = useLocation();
   const [activeConvId, setActiveConvId] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
@@ -301,8 +303,10 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
 
   // ── Realtime ──
   useEffect(() => {
-    if (!activeConvId || !realtimeClient) return;
-    const channel = realtimeClient
+    if (!activeConvId) return;
+    const rt = getRtClient(config.supabaseUrl, config.supabaseAnonKey);
+    if (!rt) return;
+    const channel = rt
       .channel(`messages:conv:${activeConvId}`)
       .on("postgres_changes", {
         event: "INSERT", schema: "public", table: "messages",
@@ -312,8 +316,8 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
         queryClient.invalidateQueries({ queryKey: ["/api/conversations"] });
       })
       .subscribe();
-    return () => { realtimeClient.removeChannel(channel); };
-  }, [activeConvId]);
+    return () => { rt.removeChannel(channel); };
+  }, [activeConvId, config.supabaseUrl, config.supabaseAnonKey]);
 
   // ── Auto-scroll ──
   useEffect(() => {

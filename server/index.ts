@@ -1,4 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { startCronJobs } from "./cron";
@@ -13,15 +15,38 @@ declare module "http" {
   }
 }
 
+// ── Security headers ─────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: false, // React app manages its own CSP needs
+  crossOriginEmbedderPolicy: false, // needed for embedded maps/videos
+}));
+
+// ── Rate limiting ─────────────────────────────────────────────
+// Global: 300 req/min per IP
+app.use("/api", rateLimit({
+  windowMs: 60_000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests — slow down" },
+  skip: (req) => req.path === "/api/health",
+}));
+
+// Tighter limit on auth endpoints (prevent brute force)
+app.use("/api/auth/login", rateLimit({ windowMs: 60_000, max: 10, message: { error: "Too many login attempts" } }));
+app.use("/api/auth/register", rateLimit({ windowMs: 60_000, max: 5, message: { error: "Too many registration attempts" } }));
+
+// ── Body parsing ─────────────────────────────────────────────
 app.use(
   express.json({
+    limit: "2mb", // prevent oversized payload attacks
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "2mb" }));
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

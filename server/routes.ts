@@ -40,7 +40,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============================================================
   // USERS
   // ============================================================
-  app.get("/api/users", async (_req, res) => {
+  // Bulk user list — admin only (not used by client, prevents mass data harvest)
+  app.get("/api/users", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    if ((currentUser as any).siteRole !== "site_admin" && (currentUser as any).siteRole !== "super_admin") {
+      return res.status(403).json({ error: "Admin only" });
+    }
     const users = await storage.listUsers();
     res.json(users);
   });
@@ -288,8 +293,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/listings/run-expiry", async (req, res) => {
     // Basic token check to prevent public abuse
     const token = req.headers["x-cron-token"] || req.query.token;
-    if (token !== (process.env.CRON_SECRET || "whipguides-cron-2026")) {
-      return res.status(401).json({ error: "Unauthorized" });
+    const secret = process.env.CRON_SECRET;
+    // If no secret configured, only allow from localhost (Railway internal)
+    if (secret) {
+      if (token !== secret) return res.status(401).json({ error: "Unauthorized" });
+    } else {
+      const ip = req.ip || req.socket.remoteAddress || "";
+      if (!ip.includes("127.0.0.1") && !ip.includes("::1") && !ip.includes("::ffff:127")) {
+        return res.status(401).json({ error: "CRON_SECRET not configured" });
+      }
     }
 
     const now = new Date();
@@ -1684,7 +1696,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // GET /api/notifications — list my notifications
   app.get("/api/notifications", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
-    const limit = req.query.limit ? Number(req.query.limit) : 30;
+    const limit = Math.min(req.query.limit ? Number(req.query.limit) : 30, 50);
     const notifs = await (storage as any).listNotifications(currentUser.id, limit);
     return res.json(notifs);
   });

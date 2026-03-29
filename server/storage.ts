@@ -356,13 +356,14 @@ export class SupabaseStorage implements IStorage {
   }
 
   async updateUser(id: number, data: Partial<User>): Promise<User | undefined> {
+    // Strict allowlist — only user-editable fields. rating/reviewCount/verified/siteRole
+    // are server-only and must never come from a user PATCH request.
     const updates: any = {};
     if (data.displayName) updates.display_name = data.displayName;
-    if (data.avatar) updates.avatar = data.avatar;
-    if (data.bio) updates.bio = data.bio;
-    if (data.location) updates.location = data.location;
-    if (data.rating !== undefined) updates.rating = data.rating;
-    if (data.reviewCount !== undefined) updates.review_count = data.reviewCount;
+    if (data.avatar !== undefined) updates.avatar = data.avatar;
+    if (data.bio !== undefined) updates.bio = data.bio;
+    if (data.location !== undefined) updates.location = data.location;
+    if (!Object.keys(updates).length) return this.getUser(id);
     const { data: row } = await supabaseAdmin.from("users").update(updates).eq("id", id).select().single();
     return row ? this.mapUser(row) : undefined;
   }
@@ -1067,17 +1068,14 @@ export class SupabaseStorage implements IStorage {
   }
 
   async listNotifications(userId: number, limit = 30): Promise<any[]> {
+    // Single query with actor join — eliminates N+1
     const { data } = await supabaseAdmin
       .from("notifications")
-      .select("*")
+      .select("*, actor:users!notifications_actor_id_fkey(id,display_name,username,avatar)")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
-      .limit(limit);
-    const rows = data || [];
-    return Promise.all(rows.map(async (row: any) => {
-      const actor = row.actor_id ? await this.getUser(row.actor_id) : undefined;
-      return this.mapNotification(row, actor);
-    }));
+      .limit(Math.min(limit, 50)); // hard cap — prevent abuse
+    return (data || []).map((row: any) => this.mapNotification(row, row.actor ? this.mapUser(row.actor) : undefined));
   }
 
   async getUnreadCount(userId: number): Promise<number> {
