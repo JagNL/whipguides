@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { StarRating } from "@/components/StarRating";
+import { VideoPlayer } from "@/components/VideoPlayer";
 import { Link, useLocation } from "wouter";
 import { useState, useEffect } from "react";
 import { timeAgo, formatPrice } from "@/lib/utils";
@@ -155,6 +156,21 @@ export default function ListingDetailPage({ id }: { id: number }) {
                   <img src={img} alt="" className="w-full h-full object-cover" />
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* Walk-Around Video */}
+          {(listing.videoHlsUrl || listing.video_hls_url) && (
+            <div className="bg-card rounded-xl border border-border p-4">
+              <h2 className="font-bold text-base mb-3 flex items-center gap-2">
+                <span>Walk-Around Video</span>
+                <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full font-normal">from seller</span>
+              </h2>
+              <VideoPlayer
+                hlsUrl={listing.videoHlsUrl || listing.video_hls_url}
+                thumbnailUrl={listing.videoThumbnailUrl || listing.video_thumbnail_url}
+                controls
+              />
             </div>
           )}
 

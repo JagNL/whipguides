@@ -7,6 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { useState } from "react";
+import { VideoUploader, type VideoUploadResult } from "@/components/VideoUploader";
+import { VideoPlayer } from "@/components/VideoPlayer";
+import { useAppConfig } from "@/hooks/use-cf-url";
 import { useAuth } from "@/hooks/use-auth";
 import ImageUploader from "@/components/ImageUploader";
 import LocationPicker from "@/components/LocationPicker";
@@ -91,6 +94,8 @@ export default function CreateListingPage() {
   const [step, setStep] = useState(0); // 0=type, 1=details, 2=photos+price
   const [listingType, setListingType] = useState<ListingType>("vehicle");
   const [uploadedImageIds, setUploadedImageIds] = useState<string[]>([]);
+  const [listingVideo, setListingVideo] = useState<VideoUploadResult | null>(null);
+  const config = useAppConfig();
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const { isAuthenticated } = useAuth();
@@ -140,6 +145,9 @@ export default function CreateListingPage() {
         latitude: locationLat,
         longitude: locationLng,
         images: uploadedImageIds,
+        videoId:           listingVideo?.videoId || null,
+        videoHlsUrl:       listingVideo?.hlsUrl || null,
+        videoThumbnailUrl: listingVideo?.thumbnailUrl || null,
         listingType,
         // Vehicle
         year: year ? Number(year) : undefined,
@@ -439,6 +447,23 @@ export default function CreateListingPage() {
               label="Photos"
               hint="Listings with 5+ photos get 4× more views. First photo is your cover."
             />
+
+            {/* Video (1 per listing, 60 sec max) */}
+            {config.videoListingEnabled && (
+              <div className="mt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-sm font-semibold">Walk-Around Video</span>
+                  <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">Optional · 60 sec max</span>
+                </div>
+                <p className="text-xs text-muted-foreground mb-2">A short video dramatically increases buyer interest. Show the vehicle running, walk around, engine bay, etc.</p>
+                <VideoUploader
+                  context="listing"
+                  onUploaded={setListingVideo}
+                  onRemove={() => setListingVideo(null)}
+                  currentVideo={listingVideo}
+                />
+              </div>
+            )}
 
             {/* Price */}
             <Field label="Asking Price" required>

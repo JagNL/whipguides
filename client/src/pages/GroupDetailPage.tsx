@@ -14,6 +14,9 @@ import ImageUploader from "@/components/ImageUploader";
 import { GuideEmbedCard } from "@/components/GuideEmbedCard";
 import { PostImageGrid } from "@/components/ImageLightbox";
 import { GroupSettingsSheet } from "@/components/GroupSettingsSheet";
+import { VideoUploader, type VideoUploadResult } from "@/components/VideoUploader";
+import { VideoPlayer, VideoThumbnail } from "@/components/VideoPlayer";
+import { useAppConfig } from "@/hooks/use-cf-url";
 import { timeAgo } from "@/lib/utils";
 import {
   Users, MessageSquare, Heart, Share2, Plus,
@@ -21,7 +24,7 @@ import {
   BookOpen, Search, Wrench, ChevronRight, Star, MapPin, UserCheck,
   Lock, Clock, CheckCircle2, XCircle, UserPlus, Eye, EyeOff, Shield,
   Trash2, Settings, Crown, UserMinus, ShieldCheck, AlertTriangle,
-  Pin, Flag,
+  Pin, Flag, Video,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -344,6 +347,16 @@ function PostCard({ post, currentUserId, groupAdminRole }: {
       {/* Images */}
       <PostImageGrid images={post.images || []} />
 
+      {/* Video */}
+      {(post.videoHlsUrl || post.video_hls_url) && (
+        <div className="mt-3">
+          <VideoPlayer
+            hlsUrl={post.videoHlsUrl || post.video_hls_url}
+            thumbnailUrl={post.videoThumbnailUrl || post.video_thumbnail_url}
+          />
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex items-center gap-4 pt-3 mt-3 border-t border-border flex-wrap">
         <button
@@ -390,10 +403,13 @@ function PostCard({ post, currentUserId, groupAdminRole }: {
 // ─── Post Composer ────────────────────────────────────────────
 function PostComposer({ groupId, user }: { groupId: number; user: any }) {
   const { toast } = useToast();
+  const config = useAppConfig();
   const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState("");
   const [imageIds, setImageIds] = useState<string[]>([]);
   const [showImages, setShowImages] = useState(false);
+  const [showVideo, setShowVideo] = useState(false);
+  const [attachedVideo, setAttachedVideo] = useState<VideoUploadResult | null>(null);
   const [showGuideSearch, setShowGuideSearch] = useState(false);
   const [attachedGuide, setAttachedGuide] = useState<any>(null);
 
@@ -416,6 +432,7 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
 
   const reset = () => {
     setContent(""); setImageIds([]); setShowImages(false);
+    setShowVideo(false); setAttachedVideo(null);
     setShowGuideSearch(false); setAttachedGuide(null); setExpanded(false);
   };
 
@@ -425,6 +442,9 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
         content: content.trim(),
         images: imageIds,
         guideId: attachedGuide?.id ?? null,
+        videoId: attachedVideo?.videoId ?? null,
+        videoHlsUrl: attachedVideo?.hlsUrl ?? null,
+        videoThumbnailUrl: attachedVideo?.thumbnailUrl ?? null,
       });
       return res.json();
     },
@@ -439,7 +459,7 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
     onError: (err: any) => toast({ title: "Error posting", description: err?.message || "Could not post. Try again.", variant: "destructive" }),
   });
 
-  const canPost = (content.trim() || attachedGuide) && !isPending;
+  const canPost = (content.trim() || attachedGuide || attachedVideo) && !isPending;
 
   if (!expanded) {
     return (
@@ -519,21 +539,45 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
       )}
 
       {/* Image uploader */}
-      {showImages && (
+      {showImages && !attachedVideo && (
         <ImageUploader value={imageIds} onChange={setImageIds} maxImages={4} label="Photos" />
+      )}
+
+      {/* Video uploader */}
+      {showVideo && config.videoGroupEnabled && (
+        <VideoUploader
+          context="group"
+          onUploaded={(result) => { setAttachedVideo(result); }}
+          onRemove={() => { setAttachedVideo(null); setShowVideo(false); }}
+          currentVideo={attachedVideo}
+        />
       )}
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => setShowImages(s => !s)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+            onClick={() => { setShowImages(s => !s); if (showVideo) setShowVideo(false); }}
+            className={`flex items-center gap-1.5 text-xs transition-colors ${showImages ? "text-primary" : "text-muted-foreground hover:text-primary"}`}
             data-testid="button-toggle-post-images"
+            disabled={!!attachedVideo}
           >
             <ImageIcon className="w-4 h-4" />
             {showImages ? "Hide photos" : "Add photos"}
           </button>
+
+          {config.videoGroupEnabled && (
+            <button
+              type="button"
+              onClick={() => { setShowVideo(s => !s); setShowImages(false); }}
+              className={`flex items-center gap-1.5 text-xs transition-colors ${showVideo || attachedVideo ? "text-primary" : "text-muted-foreground hover:text-primary"}`}
+              data-testid="button-toggle-post-video"
+              disabled={imageIds.length > 0}
+            >
+              <Video className="w-4 h-4" />
+              {attachedVideo ? "Video attached" : showVideo ? "Cancel video" : "Add video"}
+            </button>
+          )}
 
           <button
             type="button"

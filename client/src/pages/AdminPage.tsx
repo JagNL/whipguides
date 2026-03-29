@@ -23,11 +23,12 @@ import {
   Ban, CheckCircle, Star, Trash2, Search,
   ShieldCheck, Activity, ChevronLeft, ChevronRight,
   Eye, AlertTriangle, Megaphone, Filter, CheckCircle2,
-  XCircle, Pause, Play, Plus, Key, Globe,
+  XCircle, Pause, Play, Plus, Key, Globe, Video, ToggleLeft, ToggleRight, AlertTriangle,
 } from "lucide-react";
+import { useAppConfig } from "@/hooks/use-cf-url";
 import { timeAgo } from "@/lib/utils";
 
-type AdminTab = "overview" | "users" | "listings" | "reports" | "groups" | "ads" | "moderation" | "keywords" | "audit";
+type AdminTab = "overview" | "users" | "listings" | "reports" | "groups" | "ads" | "moderation" | "keywords" | "audit" | "video";
 
 // ─── Stat Card ───────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, color = "text-primary", urgent = false }: any) {
@@ -609,6 +610,7 @@ export default function AdminPage() {
     { id: "moderation", label: "Moderation", icon: Filter },
     { id: "keywords", label: "Keywords", icon: Key },
     { id: "audit", label: "Audit Log", icon: Activity, superOnly: true },
+    { id: "video", label: "Video", icon: Video, superOnly: true },
   ];
 
   return (
@@ -655,6 +657,157 @@ export default function AdminPage() {
       {activeTab === "moderation" && <ModerationTab />}
       {activeTab === "keywords" && <KeywordsTab />}
       {activeTab === "audit" && <AuditTab />}
+      {activeTab === "video" && <VideoAdminTab />}
+    </div>
+  );
+}
+
+// ─── Video Admin Tab ──────────────────────────────────────────
+function VideoAdminTab() {
+  const { toast } = useToast();
+  const config = useAppConfig();
+
+  const { data: providerInfo, isLoading } = useQuery<any>({
+    queryKey: ["/api/video/provider-info"],
+    queryFn: () => apiRequest("GET", "/api/video/provider-info").then(r => r.json()),
+  });
+
+  const setEnvNote = (key: string, value: string) => (
+    `Set ${key}=${value} in Railway environment variables and redeploy.`
+  );
+
+  type KillSwitch = { key: string; label: string; desc: string; current: boolean };
+  const switches: KillSwitch[] = [
+    {
+      key: "VIDEO_ENABLED",
+      label: "All Video Uploads",
+      desc: "Master kill switch. Disabling this turns off all video globally.",
+      current: config.videoEnabled,
+    },
+    {
+      key: "VIDEO_GROUP_ENABLED",
+      label: "Group Post Videos",
+      desc: "Allow members to attach videos to group posts (max 90 sec).",
+      current: config.videoGroupEnabled,
+    },
+    {
+      key: "VIDEO_LISTING_ENABLED",
+      label: "Listing Walk-Around Videos",
+      desc: "Allow sellers to attach a walk-around video to marketplace listings (max 60 sec).",
+      current: config.videoListingEnabled,
+    },
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Provider status */}
+      <div className="bg-card rounded-xl border border-border p-5">
+        <h2 className="font-bold text-base mb-4 flex items-center gap-2">
+          <Video className="w-4 h-4 text-primary" /> Video Provider
+        </h2>
+        {isLoading ? (
+          <div className="animate-pulse h-16 bg-secondary rounded-lg" />
+        ) : providerInfo ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-secondary rounded-xl">
+              <div>
+                <p className="text-sm font-semibold">{providerInfo.name}</p>
+                <p className="text-xs text-muted-foreground">Current video provider</p>
+              </div>
+              <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                providerInfo.configured
+                  ? "bg-green-500/15 text-green-400"
+                  : "bg-yellow-500/15 text-yellow-400"
+              }`}>
+                {providerInfo.configured ? "Configured" : "Not configured (dev mode)"}
+              </span>
+            </div>
+            {!providerInfo.configured && (
+              <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl text-xs text-yellow-300">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold mb-1">Provider not configured</p>
+                  <p>To enable Cloudflare Stream, add these Railway env vars:</p>
+                  <code className="block mt-1 font-mono bg-black/30 px-2 py-1 rounded">
+                    CF_ACCOUNT_ID=your_account_id<br />
+                    CF_STREAM_TOKEN=your_stream_api_token
+                  </code>
+                  <p className="mt-1">Alternatively, set <code>VIDEO_PROVIDER=mux</code> and add Mux credentials when switching providers.</p>
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              {Object.entries(providerInfo.limits || {}).map(([ctx, lim]: [string, any]) => (
+                <div key={ctx} className="bg-secondary rounded-lg p-3">
+                  <p className="font-semibold capitalize mb-1">{ctx}</p>
+                  <p className="text-muted-foreground">Max {lim.maxSeconds}s</p>
+                  <p className="text-muted-foreground">{Math.round(lim.maxBytes / 1024 / 1024)} MB limit</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Could not load provider info.</p>
+        )}
+      </div>
+
+      {/* Kill switches */}
+      <div className="bg-card rounded-xl border border-border p-5">
+        <h2 className="font-bold text-base mb-1 flex items-center gap-2">
+          <ToggleLeft className="w-4 h-4 text-primary" /> Kill Switches
+        </h2>
+        <p className="text-xs text-muted-foreground mb-4">
+          These are controlled via Railway environment variables. Changes require a redeploy.
+        </p>
+        <div className="space-y-3">
+          {switches.map(sw => (
+            <div key={sw.key} className="flex items-start justify-between gap-4 p-4 bg-secondary rounded-xl">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold flex items-center gap-2">
+                  {sw.label}
+                  {sw.current
+                    ? <span className="text-[10px] bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full font-bold">ENABLED</span>
+                    : <span className="text-[10px] bg-red-500/15 text-red-400 px-1.5 py-0.5 rounded-full font-bold">DISABLED</span>
+                  }
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{sw.desc}</p>
+                <p className="text-[10px] text-muted-foreground/60 mt-1 font-mono">
+                  To {sw.current ? "disable" : "enable"}: set {sw.key}={sw.current ? "false" : "true"} in Railway
+                </p>
+              </div>
+              <div className={`shrink-0 mt-0.5 ${sw.current ? "text-green-400" : "text-red-400"}`}>
+                {sw.current
+                  ? <ToggleRight className="w-7 h-7" />
+                  : <ToggleLeft className="w-7 h-7" />}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 p-3 bg-primary/5 border border-primary/20 rounded-xl text-xs text-muted-foreground">
+          <p className="font-semibold text-foreground mb-1">How to toggle a kill switch</p>
+          <ol className="list-decimal ml-4 space-y-1">
+            <li>Go to Railway → Your Project → Variables</li>
+            <li>Set the env var shown above (e.g. <code>VIDEO_ENABLED=false</code>)</li>
+            <li>Railway will auto-redeploy. Kill switch activates instantly after deploy.</li>
+            <li>To re-enable: set the var to <code>true</code> or delete it (defaults to enabled).</li>
+          </ol>
+        </div>
+      </div>
+
+      {/* Switching providers */}
+      <div className="bg-card rounded-xl border border-border p-5">
+        <h2 className="font-bold text-base mb-2">Switching Video Providers</h2>
+        <p className="text-xs text-muted-foreground mb-3">
+          The video system is provider-agnostic. To switch (e.g. to Mux or Bunny Stream):
+        </p>
+        <ol className="text-xs text-muted-foreground space-y-1 list-decimal ml-4">
+          <li>Edit <code>server/video-provider.ts</code> — implement the <code>VideoProvider</code> interface for the new provider</li>
+          <li>Add a new entry in <code>getVideoProvider()</code> factory function</li>
+          <li>Set <code>VIDEO_PROVIDER=mux</code> (or your provider name) in Railway env vars</li>
+          <li>Add the provider's API credentials as env vars</li>
+          <li>Redeploy — clients are untouched, they only talk to <code>/api/video</code></li>
+        </ol>
+      </div>
     </div>
   );
 }

@@ -6,6 +6,11 @@ interface AppConfig {
   supabaseUrl: string;
   supabaseAnonKey: string;
   googleMapsApiKey: string;
+  // Video feature flags
+  videoEnabled: boolean;
+  videoGroupEnabled: boolean;
+  videoListingEnabled: boolean;
+  cfStreamEnabled: boolean;
 }
 
 export function useAppConfig(): AppConfig {
@@ -14,7 +19,10 @@ export function useAppConfig(): AppConfig {
     queryFn: () => apiRequest("GET", "/api/config").then(r => r.json()),
     staleTime: Infinity,
   });
-  return data || { cfImagesUrl: "", supabaseUrl: "", supabaseAnonKey: "", googleMapsApiKey: "" };
+  return data || {
+    cfImagesUrl: "", supabaseUrl: "", supabaseAnonKey: "", googleMapsApiKey: "",
+    videoEnabled: true, videoGroupEnabled: true, videoListingEnabled: true, cfStreamEnabled: false,
+  };
 }
 
 export function useCfUrl(): string {

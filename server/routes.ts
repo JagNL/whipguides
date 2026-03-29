@@ -7,6 +7,7 @@ import { adminRouter, reportRouter } from "./admin";
 import { adsRouter, adminAdsRouter } from "./ads";
 import { businessRouter } from "./business";
 import { uploadRouter } from "./upload";
+import { videoRouter } from "./video";
 import { sendEmail, listingExpiryWarningEmail, listingExpiredEmail, listingSoldConfirmEmail } from "./email";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -19,6 +20,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // UPLOAD ROUTES (Cloudflare Images)
   // ============================================================
   app.use("/api/upload", uploadRouter);
+  app.use("/api/video", videoRouter);
 
   // ============================================================
   // ADMIN ROUTES
@@ -965,6 +967,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         content: req.body.content,
         images: req.body.images || [],
         guideId: req.body.guideId ? Number(req.body.guideId) : null,
+        videoId:           req.body.videoId || null,
+        videoHlsUrl:       req.body.videoHlsUrl || null,
+        videoThumbnailUrl: req.body.videoThumbnailUrl || null,
       });
       // Increment group post_count
       const group = await storage.getGroup(Number(req.params.id));
@@ -1995,6 +2000,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       supabaseUrl: process.env.SUPABASE_URL || "",
       supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "",
       googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || "",
+      // Video feature flags (kill switch)
+      videoEnabled: process.env.VIDEO_ENABLED !== "false",  // default ON, set VIDEO_ENABLED=false to kill
+      videoGroupEnabled: process.env.VIDEO_GROUP_ENABLED !== "false",
+      videoListingEnabled: process.env.VIDEO_LISTING_ENABLED !== "false",
+      cfStreamEnabled: !!(process.env.CF_STREAM_TOKEN && process.env.CF_ACCOUNT_ID),
     });
   });
 

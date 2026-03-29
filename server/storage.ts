@@ -548,10 +548,14 @@ export class SupabaseStorage implements IStorage {
       content: post.content,
       images: post.images || [],
     };
-    // Only include guide_id if the column exists (guide-embed migration may not have run)
+    // Only include guide_id if provided (guide-embed migration may not have run)
     if ((post as any).guideId != null) {
       insertData.guide_id = (post as any).guideId;
     }
+    // Video fields (video migration may not have run — use conditional)
+    if ((post as any).videoId != null)           insertData.video_id = (post as any).videoId;
+    if ((post as any).videoHlsUrl != null)       insertData.video_hls_url = (post as any).videoHlsUrl;
+    if ((post as any).videoThumbnailUrl != null) insertData.video_thumbnail_url = (post as any).videoThumbnailUrl;
     const { data, error } = await supabaseAdmin.from("posts").insert(insertData).select().single();
     if (error) throw new Error(error.message);
     return this.mapPost(data);
