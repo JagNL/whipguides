@@ -96,6 +96,7 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
   const [inviteSearch, setInviteSearch] = useState("");
   const [inviteResults, setInviteResults] = useState<any[]>([]);
   const [inviting, setInviting] = useState<number | null>(null);
+  const [invitedIds, setInvitedIds] = useState<Set<number>>(new Set());
 
   const searchUsers = async (q: string) => {
     if (q.length < 2) { setInviteResults([]); return; }
@@ -107,13 +108,11 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
   const inviteUser = async (userId: number) => {
     setInviting(userId);
     try {
-      await apiRequest("POST", `/api/groups/${group.id}/join`, {
-        userId,
-        message: `You've been invited to join ${group.name}!`,
-      });
-      toast({ title: "Invitation sent" });
-    } catch {
-      toast({ title: "Could not invite", variant: "destructive" });
+      await apiRequest("POST", `/api/groups/${group.id}/invite`, { userId });
+      setInvitedIds(prev => new Set([...prev, userId]));
+      toast({ title: "Added to group", description: "They are now a member." });
+    } catch (err: any) {
+      toast({ title: "Could not invite", description: err?.message || "Try again", variant: "destructive" });
     } finally {
       setInviting(null);
     }
@@ -448,28 +447,42 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
                 />
               </div>
               <div className="space-y-1.5">
-                {inviteResults.map((u: any) => (
-                  <div key={u.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-secondary">
-                    <Avatar className="w-8 h-8 shrink-0">
-                      <AvatarImage src={u.avatar} />
-                      <AvatarFallback className="text-xs bg-primary/20 text-primary">{u.displayName?.[0]}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{u.displayName || u.username}</p>
-                      <p className="text-xs text-muted-foreground">@{u.username}</p>
+                {inviteResults.map((u: any) => {
+                  const alreadyInvited = invitedIds.has(u.id);
+                  const isMemberAlready = members.some((m: any) => m.id === u.id);
+                  return (
+                    <div key={u.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-secondary">
+                      <Avatar className="w-8 h-8 shrink-0">
+                        <AvatarImage src={u.avatar} />
+                        <AvatarFallback className="text-xs bg-primary/20 text-primary">{u.displayName?.[0]}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{u.displayName || u.username}</p>
+                        <p className="text-xs text-muted-foreground">@{u.username}</p>
+                      </div>
+                      {isMemberAlready ? (
+                        <span className="text-xs text-muted-foreground px-2 py-1 rounded-lg bg-background">Member</span>
+                      ) : alreadyInvited ? (
+                        <span className="flex items-center gap-1 text-xs text-green-400 font-medium px-2 py-1 rounded-lg bg-green-400/10">
+                          <Check className="w-3 h-3" /> Added
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="shrink-0 gap-1 h-7 text-xs"
+                          onClick={() => inviteUser(u.id)}
+                          disabled={inviting === u.id}
+                        >
+                          {inviting === u.id
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : <UserPlus className="w-3 h-3" />}
+                          Add
+                        </Button>
+                      )}
                     </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="shrink-0 gap-1 h-7 text-xs"
-                      onClick={() => inviteUser(u.id)}
-                      disabled={inviting === u.id}
-                    >
-                      {inviting === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <UserPlus className="w-3 h-3" />}
-                      Invite
-                    </Button>
-                  </div>
-                ))}
+                  );
+                })}
                 {inviteSearch.length >= 2 && inviteResults.length === 0 && (
                   <p className="text-xs text-muted-foreground text-center py-4">No users found</p>
                 )}

@@ -753,6 +753,58 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json({ isMember, role, isSuperAdmin });
   });
 
+  // ── Admin invite a user directly into the group ───────────────
+  // POST /api/groups/:id/invite — owner/admin adds a user as member directly
+  app.post("/api/groups/:id/invite", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const { userId } = req.body;
+    if (!userId) return res.status(400).json({ error: "userId is required" });
+
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    const isSiteAdmin = (currentUser as any).siteRole === "super_admin";
+    const { data: mem } = await supabaseAdminForRoutes
+      .from("group_members").select("role")
+      .eq("group_id", groupId).eq("user_id", currentUser.id).single();
+    const isGroupAdmin = ["owner", "admin"].includes(mem?.role || "");
+
+    if (!isGroupAdmin && !isSiteAdmin) {
+      return res.status(403).json({ error: "Only group admins can invite members" });
+    }
+
+    // Check if already a member
+    const { data: existing } = await supabaseAdminForRoutes
+      .from("group_members").select("user_id")
+      .eq("group_id", groupId).eq("user_id", userId).single();
+    if (existing) return res.status(400).json({ error: "User is already a member" });
+
+    // Add directly as member
+    await supabaseAdminForRoutes.from("group_members").insert({
+      group_id: groupId,
+      user_id: userId,
+      role: "member",
+    });
+
+    // Increment member count
+    const { data: g } = await supabaseAdminForRoutes
+      .from("groups").select("member_count").eq("id", groupId).single();
+    if (g) await supabaseAdminForRoutes.from("groups")
+      .update({ member_count: (g.member_count || 0) + 1 }).eq("id", groupId);
+
+    // Log it
+    await supabaseAdminForRoutes.from("group_mod_logs" as any).insert({
+      group_id: groupId,
+      moderator_id: currentUser.id,
+      action: "invite",
+      target_user_id: userId,
+      note: `Invited by ${currentUser.username || currentUser.id}`,
+    }).catch(() => null);
+
+    return res.json({ success: true });
+  });
+
   // ── Update group settings ──────────────────────────────────
   app.patch("/api/groups/:id", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
