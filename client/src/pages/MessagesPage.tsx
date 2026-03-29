@@ -540,13 +540,14 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
                   )}
                 </div>
               ) : (
-                messages.map(msg => {
+                messages.map((msg, i) => {
                   const isMe = msg.senderId === user!.id;
                   return (
                     <div
                       key={msg.id}
                       data-testid={`msg-${msg.id}`}
                       className={cn("flex items-end gap-2", isMe ? "flex-row-reverse" : "flex-row")}
+                      style={{ animationDelay: `${Math.min(i * 18, 120)}ms` }}
                     >
                       {!isMe && (
                         <Avatar className="w-6 h-6 shrink-0 mb-0.5">
@@ -559,8 +560,8 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
                       <div className={cn(
                         "max-w-[72%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
                         isMe
-                          ? "bg-primary text-primary-foreground rounded-br-sm"
-                          : "bg-secondary text-foreground rounded-bl-sm"
+                          ? "msg-me bg-primary text-primary-foreground rounded-br-sm"
+                          : "msg-other bg-secondary text-foreground rounded-bl-sm"
                       )}>
                         <p>{msg.content}</p>
                         <p className={cn(
@@ -568,7 +569,7 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
                           isMe ? "text-primary-foreground/60 text-right" : "text-muted-foreground"
                         )}>
                           {timeAgo(msg.createdAt)}
-                          {isMe && msg.readAt && " · Read"}
+                          {isMe && msg.readAt && <span className="read-receipt"> · Read</span>}
                         </p>
                       </div>
                     </div>
@@ -587,7 +588,7 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
             )}
 
             {/* Compose */}
-            <div className="px-4 py-3 border-t border-border flex items-center gap-2">
+            <div className="px-4 py-3 border-t border-border flex items-center gap-2 bg-background/80 backdrop-blur-sm">
               <Input
                 data-testid="input-message-compose"
                 value={draft}
@@ -596,19 +597,32 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
                 placeholder={
                   isListingConv
                     ? "Ask about the item, make an offer..."
-                    : "Type a message... (Enter to send)"
+                    : "iMessage..."
                 }
-                className="flex-1 bg-secondary border-border"
+                className="flex-1 bg-secondary border-border compose-input rounded-full px-4"
                 disabled={sending}
               />
               <Button
                 size="icon"
-                onClick={handleSend}
+                onClick={(e) => {
+                  const btn = e.currentTarget;
+                  btn.classList.remove("send-btn-pulse");
+                  void btn.offsetWidth; // reflow to restart animation
+                  btn.classList.add("send-btn-pulse");
+                  handleSend();
+                }}
                 disabled={!draft.trim() || sending}
                 data-testid="button-send-message"
-                className="shrink-0"
+                className={cn(
+                  "shrink-0 rounded-full transition-all duration-150",
+                  draft.trim() && !sending
+                    ? "bg-primary hover:bg-primary/90 text-primary-foreground shadow-md shadow-primary/30"
+                    : "bg-secondary text-muted-foreground"
+                )}
               >
-                <Send className="w-4 h-4" />
+                {sending
+                  ? <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  : <Send className="w-4 h-4" />}
               </Button>
             </div>
           </div>
