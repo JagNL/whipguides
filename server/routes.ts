@@ -777,6 +777,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (req.body[key] !== undefined) updates[key] = req.body[key];
     }
     const updated = await storage.updateGroup(groupId, updates);
+    if (!updated) {
+      // Fetch the group fresh if updateGroup returned undefined
+      const fresh = await storage.getGroup(groupId);
+      return res.json(fresh || { id: groupId, ...updates });
+    }
     return res.json(updated);
   });
 

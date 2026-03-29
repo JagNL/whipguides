@@ -65,6 +65,9 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
   // ── Appearance state ──────────────────────────────────────
   const [coverImageId, setCoverImageId] = useState(group.coverImage || "");
   const [avatarId, setAvatarId] = useState(group.avatar || "");
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(
+    group.avatar ? (group.avatar.startsWith("http") || group.avatar.startsWith("data:") ? group.avatar : null) : null
+  );
 
   // ── Rules ─────────────────────────────────────────────────
   const { data: rules = [] } = useQuery<any[]>({
@@ -178,7 +181,8 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
   });
 
   const coverSrc = resolveImageUrl(cfBase, coverImageId);
-  const avatarSrc = resolveImageUrl(cfBase, avatarId);
+  // Avatar: prefer the live cdnUrl from upload, fall back to resolving stored key
+  const avatarSrc = avatarPreviewUrl || resolveImageUrl(cfBase, avatarId);
 
   // Split members into followed vs others
   const followedMembers = members.filter(m => m.isFollowed || m.id === user?.id || m.role === "owner");
@@ -291,7 +295,13 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
                       <div className="w-full h-full flex items-center justify-center text-2xl opacity-30">🏁</div>
                     )}
                   </div>
-                  <AvatarUploader currentImageId={avatarId} onUpload={setAvatarId} label={avatarId ? "Change Avatar" : "Upload Avatar"} />
+                  <AvatarUploader
+                    currentUrl={avatarSrc || undefined}
+                    onUpload={(imageId, cdnUrl) => {
+                      setAvatarId(cdnUrl || imageId); // store the full URL so Save sends the correct value
+                      setAvatarPreviewUrl(cdnUrl || imageId);
+                    }}
+                  />
                 </div>
               </div>
               <Button
