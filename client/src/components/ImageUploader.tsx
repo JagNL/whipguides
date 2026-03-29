@@ -50,7 +50,8 @@ export default function ImageUploader({
   const syncToParent = useCallback((imgs: UploadedImage[]) => {
     const ids = imgs
       .filter(img => !img.uploading && !img.error)
-      .map(img => img.imageId);
+      // Prefer cdnUrl (full URL) so previews work without needing to reconstruct from key
+      .map(img => img.cdnUrl || img.imageId);
     onChange(ids);
   }, [onChange]);
 

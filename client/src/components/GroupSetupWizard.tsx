@@ -9,9 +9,10 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { AvatarUploader } from "@/components/ImageUploader";
 import ImageUploader from "@/components/ImageUploader";
+import { useCfUrl, resolveImageUrl } from "@/hooks/use-cf-url";
 import { useToast } from "@/hooks/use-toast";
 import {
   ChevronRight, ChevronLeft, CheckCircle2, Image, Shield,
@@ -51,7 +52,9 @@ function VisualsStep({
   onCoverChange: (id: string) => void;
   onAvatarChange: (id: string) => void;
 }) {
-  const cfUrl = (import.meta.env.VITE_CLOUDFLARE_IMAGES_URL || "").replace(/\/$/, "");
+  const cfBase = useCfUrl();
+  const coverSrc = resolveImageUrl(cfBase, coverImageId);
+  const avatarSrc = resolveImageUrl(cfBase, avatarId);
 
   return (
     <div className="space-y-6">
@@ -62,12 +65,8 @@ function VisualsStep({
         </p>
         {/* Cover image preview */}
         <div className="relative h-32 bg-secondary rounded-xl overflow-hidden border border-border mb-3">
-          {coverImageId ? (
-            <img
-              src={`${cfUrl}/${coverImageId}/public`}
-              alt="Cover"
-              className="w-full h-full object-cover"
-            />
+          {coverSrc ? (
+            <img src={coverSrc} alt="Cover" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-muted-foreground/30">
               <Image className="w-10 h-10" />
@@ -75,8 +74,8 @@ function VisualsStep({
           )}
           {/* Avatar overlay preview */}
           <div className="absolute bottom-3 left-4 w-14 h-14 rounded-xl border-2 border-card overflow-hidden bg-secondary">
-            {avatarId ? (
-              <img src={`${cfUrl}/${avatarId}/public`} alt="Avatar" className="w-full h-full object-cover" />
+            {avatarSrc ? (
+              <img src={avatarSrc} alt="Avatar" className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-lg opacity-30">🏁</div>
             )}
@@ -90,6 +89,7 @@ function VisualsStep({
           onChange={ids => onCoverChange(ids[0] || "")}
           maxImages={1}
           label="Upload Cover Photo"
+          metadata={{ type: "cover" }}
         />
       </div>
 
@@ -100,8 +100,8 @@ function VisualsStep({
         </p>
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-xl border border-border overflow-hidden bg-secondary shrink-0">
-            {avatarId ? (
-              <img src={`${cfUrl}/${avatarId}/public`} alt="Avatar" className="w-full h-full object-cover" />
+            {avatarSrc ? (
+              <img src={avatarSrc} alt="Avatar" className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-2xl opacity-30">🏁</div>
             )}
@@ -406,7 +406,9 @@ function QuestionsStep({
 function LaunchStep({ group, coverImageId, avatarId, rulesCount, invitedCount }: {
   group: any; coverImageId: string; avatarId: string; rulesCount: number; invitedCount: number;
 }) {
-  const cfUrl = (import.meta.env.VITE_CLOUDFLARE_IMAGES_URL || "").replace(/\/$/, "");
+  const cfBase = useCfUrl();
+  const coverSrc = resolveImageUrl(cfBase, coverImageId);
+  const avatarSrc = resolveImageUrl(cfBase, avatarId);
 
   const checklist = [
     { label: "Group created", done: true },
@@ -423,16 +425,16 @@ function LaunchStep({ group, coverImageId, avatarId, rulesCount, invitedCount }:
       {/* Group preview card */}
       <div className="bg-secondary rounded-xl overflow-hidden">
         <div className="h-24 bg-card relative">
-          {coverImageId ? (
-            <img src={`${cfUrl}/${coverImageId}/public`} alt="Cover" className="w-full h-full object-cover opacity-70" />
+          {coverSrc ? (
+            <img src={coverSrc} alt="Cover" className="w-full h-full object-cover opacity-70" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-4xl opacity-20">🏁</div>
           )}
           <div className="absolute inset-0 bg-gradient-to-t from-secondary to-transparent" />
           <div className="absolute bottom-3 left-4 flex items-end gap-3">
             <div className="w-12 h-12 rounded-xl border-2 border-secondary overflow-hidden bg-card">
-              {avatarId
-                ? <img src={`${cfUrl}/${avatarId}/public`} alt="Avatar" className="w-full h-full object-cover" />
+              {avatarSrc
+                ? <img src={avatarSrc} alt="Avatar" className="w-full h-full object-cover" />
                 : <div className="w-full h-full flex items-center justify-center text-xl opacity-30">🏁</div>
               }
             </div>
@@ -531,14 +533,16 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
 
   return (
     <Dialog open={open} onOpenChange={val => { if (!val) onClose(); }}>
-      <DialogContent className="sm:max-w-lg p-0 overflow-hidden" aria-describedby="wizard-description">
+      <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
+        <DialogTitle className="sr-only">Set up {group.name}</DialogTitle>
+        <DialogDescription className="sr-only">A wizard to configure your group's visuals, rules, and settings.</DialogDescription>
         <div className="flex flex-col max-h-[90vh]">
           {/* Header */}
           <div className="px-6 pt-6 pb-4 border-b border-border">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-display font-extrabold text-lg">Set up {group.name}</h2>
-                <p id="wizard-description" className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Just a few steps to make your group shine
                 </p>
               </div>
