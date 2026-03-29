@@ -542,13 +542,17 @@ export class SupabaseStorage implements IStorage {
   }
 
   async createPost(post: InsertPost & { guideId?: number | null }): Promise<Post> {
-    const { data, error } = await supabaseAdmin.from("posts").insert({
+    const insertData: any = {
       group_id: post.groupId,
       author_id: post.authorId,
       content: post.content,
       images: post.images || [],
-      guide_id: (post as any).guideId ?? null,
-    }).select().single();
+    };
+    // Only include guide_id if the column exists (guide-embed migration may not have run)
+    if ((post as any).guideId != null) {
+      insertData.guide_id = (post as any).guideId;
+    }
+    const { data, error } = await supabaseAdmin.from("posts").insert(insertData).select().single();
     if (error) throw new Error(error.message);
     return this.mapPost(data);
   }
