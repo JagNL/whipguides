@@ -469,12 +469,12 @@ export class SupabaseStorage implements IStorage {
       private: group.private || false,
     }).select().single();
     if (error) throw new Error(error.message);
-    // Auto-add owner as a member
+    // Auto-add owner as a member — ignore if already exists
     await supabaseAdmin.from("group_members").insert({
       user_id: group.ownerId,
       group_id: data.id,
       role: 'owner',
-    }).select().single().catch(() => null);
+    }).select().single().then(() => null, () => null);
     return this.mapGroup(data);
   }
 
@@ -494,7 +494,7 @@ export class SupabaseStorage implements IStorage {
       user_id: userId,
       group_id: groupId,
       role: 'member',
-    }).select().single().catch(() => null); // ignore duplicate
+    }).select().single().then(() => null, () => null); // ignore duplicate
     // Increment member_count
     const { data } = await supabaseAdmin.from("groups").select("member_count").eq("id", groupId).single();
     if (data) await supabaseAdmin.from("groups").update({ member_count: (data.member_count || 0) + 1 }).eq("id", groupId);
@@ -524,7 +524,7 @@ export class SupabaseStorage implements IStorage {
       return { liked: false, likes: newLikes };
     } else {
       // Like
-      await supabaseAdmin.from("post_likes").insert({ user_id: userId, post_id: postId }).select().single().catch(() => null);
+      await supabaseAdmin.from("post_likes").insert({ user_id: userId, post_id: postId }).select().single().then(() => null, () => null);
       const newLikes = currentLikes + 1;
       await supabaseAdmin.from("posts").update({ likes: newLikes }).eq("id", postId);
       return { liked: true, likes: newLikes };
@@ -558,7 +558,7 @@ export class SupabaseStorage implements IStorage {
     if (existing) {
       await supabaseAdmin.from("post_helped").delete().eq("post_id", postId).eq("user_id", userId);
     } else {
-      await supabaseAdmin.from("post_helped").insert({ post_id: postId, user_id: userId }).select().single().catch(() => null);
+      await supabaseAdmin.from("post_helped").insert({ post_id: postId, user_id: userId }).select().single().then(() => null, () => null);
     }
     const { count } = await supabaseAdmin.from("post_helped").select("*", { count: "exact", head: true }).eq("post_id", postId);
     return { helped: !existing, count: count ?? 0 };
@@ -785,7 +785,7 @@ export class SupabaseStorage implements IStorage {
     await supabaseAdmin.from("group_join_requests").upsert({
       group_id: groupId, user_id: userId, status: 'pending',
       message: message || null, updated_at: new Date().toISOString(),
-    }, { onConflict: 'group_id,user_id' }).select().single().catch(() => null);
+    }, { onConflict: 'group_id,user_id' }).select().single().then(() => null, () => null);
   }
 
   async cancelJoinRequest(groupId: number, userId: number): Promise<void> {
@@ -852,7 +852,7 @@ export class SupabaseStorage implements IStorage {
       category: listing.category,
       price: listing.price,
       make: listing.make,
-    }).select().single().catch(() => null);
+    }).select().single().then(() => null, () => null);
   }
 
   async getRecentlyViewed(userId?: number, sessionId?: string, limit = 10): Promise<any[]> {
@@ -1003,7 +1003,7 @@ export class SupabaseStorage implements IStorage {
   }
 
   async addToList(listId: number, listingId: number, note?: string): Promise<void> {
-    await supabaseAdmin.from("saved_list_items").upsert({ list_id: listId, listing_id: listingId, note: note || null }, { onConflict: "list_id,listing_id" }).select().single().catch(() => null);
+    await supabaseAdmin.from("saved_list_items").upsert({ list_id: listId, listing_id: listingId, note: note || null }, { onConflict: "list_id,listing_id" }).select().single().then(() => null, () => null);
   }
 
   async removeFromList(listId: number, listingId: number): Promise<void> {
@@ -1055,7 +1055,7 @@ export class SupabaseStorage implements IStorage {
       link_type: n.linkType || null,
       link_id: n.linkId || null,
       actor_id: n.actorId || null,
-    }).select().single().catch(() => null);
+    }).select().single().then(() => null, () => null);
   }
 
   async listNotifications(userId: number, limit = 30): Promise<any[]> {
@@ -1336,7 +1336,7 @@ export class SupabaseStorage implements IStorage {
       await supabaseAdmin.from("guides").update({ likes: newLikes }).eq("id", guideId);
       return { liked: false, likes: newLikes };
     } else {
-      await supabaseAdmin.from("guide_likes").insert({ guide_id: guideId, user_id: userId }).select().single().catch(() => null);
+      await supabaseAdmin.from("guide_likes").insert({ guide_id: guideId, user_id: userId }).select().single().then(() => null, () => null);
       const newLikes = currentLikes + 1;
       await supabaseAdmin.from("guides").update({ likes: newLikes }).eq("id", guideId);
       return { liked: true, likes: newLikes };
