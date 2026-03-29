@@ -256,12 +256,14 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
   };
 
   const { mutate: submitPost, isPending } = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", `/api/groups/${groupId}/posts`, {
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/groups/${groupId}/posts`, {
         content: content.trim(),
         images: imageIds,
         guideId: attachedGuide?.id ?? null,
-      }).then(r => r.json()),
+      });
+      return res.json();
+    },
     onSuccess: (newPost) => {
       queryClient.setQueryData<any[]>(["/api/groups", groupId, "posts"], old =>
         [{ ...newPost, author: user }, ...(old || [])]
@@ -270,7 +272,7 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
       reset();
       toast({ title: "Posted!" });
     },
-    onError: () => toast({ title: "Error", description: "Could not post. Try again.", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Error posting", description: err?.message || "Could not post. Try again.", variant: "destructive" }),
   });
 
   const canPost = (content.trim() || attachedGuide) && !isPending;
