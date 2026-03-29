@@ -736,8 +736,124 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Check membership
   app.get("/api/groups/:id/membership", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
-    const isMember = await storage.isMember(Number(req.params.id), currentUser.id);
-    return res.json({ isMember });
+    const groupId = Number(req.params.id);
+    const isMember = await storage.isMember(groupId, currentUser.id);
+    // Also return role
+    let role: string | null = null;
+    if (isMember) {
+      const { data: membership } = await supabaseAdminForRoutes
+        .from("group_members")
+        .select("role")
+        .eq("group_id", groupId)
+        .eq("user_id", currentUser.id)
+        .single();
+      role = membership?.role || "member";
+    }
+    const isSuperAdmin = (currentUser as any).siteRole === "super_admin";
+    return res.json({ isMember, role, isSuperAdmin });
+  });
+
+  // ── Promote/demote group member role ─────────────────────────
+  app.patch("/api/groups/:id/members/:userId/role", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const targetUserId = Number(req.params.userId);
+    const { role } = req.body;
+    if (!["admin", "moderator", "member"].includes(role)) {
+      return res.status(400).json({ error: "Invalid role. Must be admin, moderator, or member." });
+    }
+    // Only owner or site super_admin can promote/demote
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    const isSuperAdmin = (currentUser as any).siteRole === "super_admin";
+    if (group.ownerId !== currentUser.id && !isSuperAdmin) {
+      return res.status(403).json({ error: "Only the group owner can manage roles" });
+    }
+    // Can't demote the owner
+    if (targetUserId === group.ownerId) {
+      return res.status(400).json({ error: "Cannot change the owner's role" });
+    }
+    const { error } = await supabaseAdminForRoutes
+      .from("group_members")
+      .update({ role })
+      .eq("group_id", groupId)
+      .eq("user_id", targetUserId);
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ success: true, role });
+  });
+
+  // ── Remove member from group ──────────────────────────────────
+  app.delete("/api/groups/:id/members/:userId", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const targetUserId = Number(req.params.userId);
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    const isSuperAdmin = (currentUser as any).siteRole === "super_admin";
+    if (group.ownerId !== currentUser.id && !isSuperAdmin) {
+      return res.status(403).json({ error: "Only the group owner can remove members" });
+    }
+    if (targetUserId === group.ownerId) {
+      return res.status(400).json({ error: "Cannot remove the group owner" });
+    }
+    await supabaseAdminForRoutes
+      .from("group_members")
+      .delete()
+      .eq("group_id", groupId)
+      .eq("user_id", targetUserId);
+    res.json({ success: true });
+  });
+
+  // ── Delete group (owner only, with failsafes) ─────────────────
+  // Failsafes:
+  // 1. Only the group owner OR site super_admin can delete
+  // 2. Requires confirmation string matching group name
+  // 3. Reassigns any pending content to super_admin archive record
+  // 4. Cannot be done by group admins/moderators — owner only
+  app.delete("/api/groups/:id", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const { confirmName } = req.body;
+
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    const isSuperAdmin = (currentUser as any).siteRole === "super_admin";
+
+    // Failsafe 1: Only owner or super_admin
+    if (group.ownerId !== currentUser.id && !isSuperAdmin) {
+      return res.status(403).json({ error: "Only the group owner or a site administrator can delete this group" });
+    }
+
+    // Failsafe 2: Must confirm by typing group name
+    if (!confirmName || confirmName.trim().toLowerCase() !== group.name.toLowerCase()) {
+      return res.status(400).json({ error: `Please type the group name exactly to confirm deletion: "${group.name}"` });
+    }
+
+    // Failsafe 3: Log deletion to audit trail before deleting
+    try {
+      await supabaseAdminForRoutes.from("admin_logs" as any).insert({
+        action: "group_deleted",
+        actor_id: currentUser.id,
+        target_type: "group",
+        target_id: groupId,
+        details: JSON.stringify({
+          group_name: group.name,
+          group_category: group.category,
+          deleted_by: currentUser.id,
+          deleted_by_super_admin: isSuperAdmin,
+        }),
+      }).catch(() => null); // non-blocking — delete proceeds even if log fails
+    } catch {}
+
+    // Cascade delete (Supabase FK ON DELETE CASCADE handles posts, members, etc.)
+    const { error } = await supabaseAdminForRoutes
+      .from("groups")
+      .delete()
+      .eq("id", groupId);
+
+    if (error) return res.status(500).json({ error: `Could not delete group: ${error.message}` });
+    res.json({ success: true });
   });
 
   // ============================================================

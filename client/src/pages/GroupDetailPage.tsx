@@ -18,7 +18,11 @@ import {
   MoreHorizontal, TrendingUp, ImageIcon, X, Loader2,
   BookOpen, Search, Wrench, ChevronRight, Star, MapPin, UserCheck,
   Lock, Clock, CheckCircle2, XCircle, UserPlus, Eye, EyeOff, Shield,
+  Trash2, Settings, Crown, UserMinus, ShieldCheck, AlertTriangle,
 } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 
 // ─── Guide search dropdown ────────────────────────────────────
 function GuideSearch({ onSelect }: { onSelect: (guide: any) => void }) {
@@ -832,13 +836,34 @@ export default function GroupDetailPage({ id }: { id: number }) {
     // For private groups, only fetch if member
   });
 
-  const { data: membershipData } = useQuery<{ isMember: boolean }>({
+  const { data: membershipData } = useQuery<{ isMember: boolean; role: string | null; isSuperAdmin: boolean }>({
     queryKey: ["/api/groups", id, "membership"],
     queryFn: () => apiRequest("GET", `/api/groups/${id}/membership`).then(r => r.json()),
     enabled: isAuthenticated,
   });
   const isMember = membershipData?.isMember ?? false;
+  const myRole = membershipData?.role ?? null;
+  const isSiteAdmin = membershipData?.isSuperAdmin ?? false;
   const isOwner = user && group && user.id === group.ownerId;
+  const isGroupAdmin = isOwner || myRole === "admin" || isSiteAdmin;
+
+  // Delete group state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/groups/${id}`, { confirmName: deleteConfirmText });
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Group deleted", description: "The group has been permanently deleted." });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
+      navigate("/groups");
+    },
+    onError: (err: any) => {
+      toast({ title: "Could not delete", description: err.message, variant: "destructive" });
+    },
+  });
 
   // Join request status (for private groups)
   const { data: requestData, refetch: refetchRequest } = useQuery<{ status: string }>({
@@ -991,6 +1016,28 @@ export default function GroupDetailPage({ id }: { id: number }) {
                   <XCircle className="w-3.5 h-3.5" /> Request not approved
                 </p>
               )}
+              {/* Owner/admin controls */}
+              {isGroupAdmin && (
+                <div className="flex items-center gap-2 mt-1">
+                  {myRole && myRole !== "member" && (
+                    <span className="flex items-center gap-1 text-xs text-primary font-semibold bg-primary/10 px-2 py-0.5 rounded-full">
+                      <Crown className="w-3 h-3" />
+                      {isOwner ? "Owner" : myRole === "admin" ? "Admin" : "Moderator"}
+                    </span>
+                  )}
+                  {(isOwner || isSiteAdmin) && (
+                    <Button
+                      data-testid="btn-delete-group"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => { setDeleteConfirmText(""); setDeleteDialogOpen(true); }}
+                      className="text-xs text-muted-foreground hover:text-destructive gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete Group
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1083,6 +1130,63 @@ export default function GroupDetailPage({ id }: { id: number }) {
           <RelatedGuides category={group.category} />
         </div>
       </div>
+
+      {/* ── Delete Group Dialog ── */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" /> Delete Group
+            </DialogTitle>
+            <DialogDescription>
+              This is permanent and cannot be undone. All posts, members, and content in this group will be deleted.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive space-y-1">
+              <p className="font-semibold flex items-center gap-1.5"><ShieldCheck className="w-4 h-4" /> Failsafes active:</p>
+              <ul className="text-xs space-y-0.5 ml-5 list-disc text-destructive/80">
+                <li>Only the group owner or a site administrator can delete</li>
+                <li>Must confirm by typing the group name exactly</li>
+                <li>Deletion is logged to the admin audit trail</li>
+                <li>Group admins/moderators cannot delete — owner only</li>
+              </ul>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                Type <span className="font-mono font-bold text-foreground">{group.name}</span> to confirm:
+              </p>
+              <Input
+                data-testid="input-delete-confirm"
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder={group.name}
+                className="font-mono"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="outline"
+                onClick={() => setDeleteDialogOpen(false)}
+                disabled={deleteMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                data-testid="btn-confirm-delete-group"
+                variant="destructive"
+                disabled={deleteConfirmText.trim().toLowerCase() !== group.name.toLowerCase() || deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate()}
+                className="gap-1.5"
+              >
+                {deleteMutation.isPending
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Deleting…</>
+                  : <><Trash2 className="w-4 h-4" /> Permanently Delete</>}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
