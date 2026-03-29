@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import ImageUploader from "@/components/ImageUploader";
 import { GuideEmbedCard } from "@/components/GuideEmbedCard";
+import { PostImageGrid } from "@/components/ImageLightbox";
 import { timeAgo } from "@/lib/utils";
 import {
   Users, MessageSquare, Heart, Share2, Plus,
@@ -165,20 +166,7 @@ function PostCard({ post, currentUserId }: { post: any; currentUserId?: number }
       {post.guide && <GuideEmbedCard guide={post.guide} />}
 
       {/* Images */}
-      {post.images?.length > 0 && (
-        <div className={`grid gap-1.5 mt-3 ${post.images.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
-          {post.images.slice(0, 4).map((img: string, i: number) => (
-            <div key={i} className="relative rounded-lg overflow-hidden aspect-video bg-secondary">
-              <img src={img} alt="" className="w-full h-full object-cover" />
-              {i === 3 && post.images.length > 4 && (
-                <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
-                  <span className="text-xl font-bold">+{post.images.length - 4}</span>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+      <PostImageGrid images={post.images || []} />
 
       {/* Actions */}
       <div className="flex items-center gap-4 pt-3 mt-3 border-t border-border flex-wrap">

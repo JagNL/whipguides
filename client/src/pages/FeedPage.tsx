@@ -34,6 +34,7 @@ import {
   ExternalLink, Globe,
 } from "lucide-react";
 import { timeAgo } from "@/lib/utils";
+import { PostImageGrid } from "@/components/ImageLightbox";
 
 // ─── Reaction system ──────────────────────────────────────────
 const REACTIONS = [
@@ -320,22 +321,15 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
         </div>
       )}
 
-      {/* Images */}
+      {/* Images — resolved URLs, then lightbox-enabled grid */}
       {images.length > 0 && (
-        <div className={`mb-3 ${images.length === 1 ? "px-4" : "px-4 grid gap-1.5"} ${images.length === 2 ? "grid-cols-2" : images.length >= 3 ? "grid-cols-2" : ""}`}>
-          {images.slice(0, 4).map((imgId: string, i: number) => {
-            const src = cfBase ? `${cfBase}/${imgId}/public` : imgId;
-            return (
-              <div key={i} className={`rounded-xl overflow-hidden bg-muted/20 ${images.length === 1 ? "aspect-video" : "aspect-square"} ${i === 2 && images.length === 3 ? "col-span-2 aspect-video" : ""}`}>
-                <img src={src} alt="" className="w-full h-full object-cover" />
-              </div>
-            );
-          })}
-          {images.length > 4 && (
-            <div className="absolute inset-0 bg-black/60 rounded-xl flex items-center justify-center">
-              <span className="text-white font-bold text-xl">+{images.length - 4}</span>
-            </div>
-          )}
+        <div className="px-4 mb-3">
+          <PostImageGrid
+            images={images.map((id: string) =>
+              id.startsWith("data:") || id.startsWith("http") ? id
+              : cfBase ? `${cfBase}/${id}` : id
+            )}
+          />
         </div>
       )}
 
