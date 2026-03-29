@@ -785,36 +785,37 @@ const VERTICALS = [
 function CommunityVerticals() {
   const [, navigate] = useLocation();
   return (
-    <div className="mb-4">
-      <div className="flex items-center justify-between mb-2 px-1">
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-3 px-0.5">
         <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Communities</span>
         <button
           className="text-xs text-primary hover:underline"
           onClick={() => navigate("/groups")}
           data-testid="verticals-see-all"
         >
-          See all
+          Browse all
         </button>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none" data-testid="community-verticals-row">
+      {/* 4 cols desktop → 4 cols tablet → 4 cols mobile (2×4 grid, never scrolls) */}
+      <div className="grid grid-cols-4 gap-2" data-testid="community-verticals-row">
         {VERTICALS.map(({ icon: Icon, label, tagline, vertical, gradient }) => (
           <button
             key={vertical}
             data-testid={`vertical-card-${vertical}`}
             onClick={() => navigate(`/groups?vertical=${vertical}`)}
             className={`
-              flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-white/5
-              bg-gradient-to-br ${gradient} backdrop-blur-sm
-              hover:border-primary/40 transition-all duration-150 cursor-pointer
-              min-w-[140px] h-[72px]
+              group flex flex-col items-start gap-1.5 p-3 rounded-xl
+              border border-white/5 bg-gradient-to-br ${gradient}
+              hover:border-primary/50 hover:scale-[1.02]
+              transition-all duration-150 cursor-pointer text-left
             `}
           >
-            <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg bg-white/5">
-              <Icon className="w-4 h-4 text-primary" strokeWidth={1.75} />
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-white/8 group-hover:bg-primary/15 transition-colors">
+              <Icon className="w-3.5 h-3.5 text-primary" strokeWidth={1.75} />
             </span>
-            <span className="flex flex-col items-start min-w-0">
-              <span className="text-sm font-semibold text-foreground leading-tight truncate w-full text-left">{label}</span>
-              <span className="text-[11px] text-muted-foreground leading-tight truncate w-full text-left">{tagline}</span>
+            <span className="flex flex-col gap-0.5">
+              <span className="text-xs font-semibold text-foreground leading-tight">{label}</span>
+              <span className="text-[10px] text-muted-foreground leading-snug hidden sm:block">{tagline}</span>
             </span>
           </button>
         ))}
