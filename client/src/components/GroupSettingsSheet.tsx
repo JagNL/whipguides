@@ -110,9 +110,18 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
     try {
       await apiRequest("POST", `/api/groups/${group.id}/invite`, { userId });
       setInvitedIds(prev => new Set([...prev, userId]));
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", group.id, "members"] });
       toast({ title: "Added to group", description: "They are now a member." });
     } catch (err: any) {
-      toast({ title: "Could not invite", description: err?.message || "Try again", variant: "destructive" });
+      const msg = err?.message || "";
+      if (msg.toLowerCase().includes("already a member")) {
+        // Treat as success — they are in the group, just not showing in the list yet
+        setInvitedIds(prev => new Set([...prev, userId]));
+        queryClient.invalidateQueries({ queryKey: ["/api/groups", group.id, "members"] });
+        toast({ title: "Already a member", description: "They are in this group. Switch to the Members tab to see them." });
+      } else {
+        toast({ title: "Could not invite", description: msg || "Try again", variant: "destructive" });
+      }
     } finally {
       setInviting(null);
     }
@@ -454,10 +463,10 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
                     <div key={u.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-secondary">
                       <Avatar className="w-8 h-8 shrink-0">
                         <AvatarImage src={u.avatar} />
-                        <AvatarFallback className="text-xs bg-primary/20 text-primary">{u.displayName?.[0]}</AvatarFallback>
+                        <AvatarFallback className="text-xs bg-primary/20 text-primary">{(u.display_name || u.displayName || u.username)?.[0]}</AvatarFallback>
                       </Avatar>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{u.displayName || u.username}</p>
+                        <p className="text-sm font-medium truncate">{u.display_name || u.displayName || u.username}</p>
                         <p className="text-xs text-muted-foreground">@{u.username}</p>
                       </div>
                       {isMemberAlready ? (

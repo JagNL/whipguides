@@ -778,9 +778,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     // Check if already a member
     const { data: existing } = await supabaseAdminForRoutes
-      .from("group_members").select("user_id")
+      .from("group_members").select("user_id, role")
       .eq("group_id", groupId).eq("user_id", userId).single();
-    if (existing) return res.status(400).json({ error: "User is already a member" });
+    if (existing) {
+      return res.status(400).json({
+        error: `User is already a member of this group (role: ${existing.role}). Refresh the Members tab to see them.`,
+        alreadyMember: true,
+      });
+    }
 
     // Add directly as member
     await supabaseAdminForRoutes.from("group_members").insert({
