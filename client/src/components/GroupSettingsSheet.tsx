@@ -218,7 +218,7 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
         </div>
 
         {/* Tab bar */}
-        <div className="flex gap-1 px-3 py-2 border-b border-border overflow-x-auto scrollbar-none shrink-0">
+        <div className="flex flex-wrap gap-1 px-3 py-2 border-b border-border">
           {TABS.map(t => {
             const Icon = t.icon;
             return (

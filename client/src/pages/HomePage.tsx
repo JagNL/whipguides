@@ -127,11 +127,9 @@ function ListingRow({ listings, emptyText }: { listings: any[]; emptyText?: stri
     <p className="text-sm text-muted-foreground py-2">{emptyText}</p>
   ) : null;
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide -mx-4 px-4">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
       {listings.map(l => (
-        <div key={l.id} className="w-52 shrink-0">
-          <ListingCard listing={l} compact />
-        </div>
+        <ListingCard key={l.id} listing={l} compact />
       ))}
     </div>
   );
@@ -1001,7 +999,7 @@ export default function HomePage() {
           </div>
         </div>
         <div className="relative border-t border-border bg-card/50">
-          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-8 overflow-x-auto">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center gap-x-8 gap-y-2 justify-center sm:justify-start">
             {[{ icon: TrendingUp, value: "12,400+", label: "Active Listings" }, { icon: Zap, value: "4,800+", label: "Transactions" }, { icon: Shield, value: "9,200+", label: "Verified Users" }].map(({ icon: Icon, value, label }) => (
               <div key={label} className="flex items-center gap-2 shrink-0">
                 <Icon className="w-4 h-4 text-primary" />
@@ -1046,7 +1044,7 @@ export default function HomePage() {
                 <span className="text-xs text-primary ml-auto hover:underline cursor-pointer">Manage</span>
               </Link>
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+            <div className="flex flex-wrap gap-2">
               {savedSearches.slice(0, 6).map((s: any) => (
                 <button
                   key={s.id}
@@ -1134,7 +1132,7 @@ export default function HomePage() {
         {activeTab === "browse" && (
           <>
             {/* Category pills */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-4 scrollbar-hide">
+            <div className="flex flex-wrap items-center gap-2 mb-4">
               {CATEGORIES.map(cat => (
                 <button key={cat}
                   data-testid={`filter-category-${cat.toLowerCase().replace(" ", "-")}`}

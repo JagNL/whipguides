@@ -267,7 +267,7 @@ export default function SearchPage() {
 
       {/* Tabs */}
       {submitted.length >= 2 && (
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 mb-6 scrollbar-hide">
+        <div className="flex flex-wrap items-center gap-1 mb-6">
           {TABS.map(tab => (
             <button
               key={tab.key}

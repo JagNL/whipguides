@@ -385,7 +385,7 @@ export default function GroupsPage() {
         {/* Main content */}
         <div className="flex-1 min-w-0">
           {/* Vertical filter row */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-3 scrollbar-hide">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
             {VERTICALS_ROW.map(v => (
               <button key={v} onClick={() => { setActiveVertical(v); setActiveCategory("All"); }}
                 data-testid={`filter-vertical-${v.toLowerCase().replace(" ", "-")}`}
@@ -396,7 +396,7 @@ export default function GroupsPage() {
           </div>
 
           {/* Category filters */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-5 scrollbar-hide">
+          <div className="flex flex-wrap items-center gap-2 mb-5">
             {CATEGORIES.map(cat => (
               <button
                 key={cat}

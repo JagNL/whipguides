@@ -695,7 +695,7 @@ export default function ProfilePage({ id }: { id: number }) {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 mb-5 border-b border-border overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-1 mb-5 border-b border-border">
         {ALL_TABS.map(tab => (
           <button key={tab} data-testid={`tab-${tab}`} onClick={() => setActiveTab(tab)}
             className={`px-4 py-2.5 text-sm font-semibold capitalize transition-colors border-b-2 -mb-px shrink-0 ${

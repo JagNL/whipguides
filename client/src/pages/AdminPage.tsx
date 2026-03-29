@@ -629,7 +629,7 @@ export default function AdminPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 mb-6 border-b border-border overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-1 mb-6 border-b border-border">
         {tabs.filter(t => !t.superOnly || isSuperAdmin).map(tab => (
           <button
             key={tab.id}

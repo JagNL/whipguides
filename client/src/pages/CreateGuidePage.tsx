@@ -580,7 +580,7 @@ export default function CreateGuidePage() {
       </div>
 
       {/* Stepper */}
-      <div className="flex items-center mb-8 overflow-x-auto pb-1">
+      <div className="flex flex-wrap items-center mb-8 gap-y-2">
         {STEPS_LABELS.map((step, idx) => {
           const Icon = step.icon;
           const isDone = idx < activeStep;
