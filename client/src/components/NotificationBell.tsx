@@ -11,22 +11,48 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   Bell, MessageSquare, Heart, BookOpen, Users, Star,
-  Bookmark, CheckCheck, Trash2, Wrench, X,
+  Bookmark, CheckCheck, X, UserPlus, Wrench,
+  CalendarDays, AlertCircle, Tag, RefreshCw,
+  ShieldAlert, ShieldCheck, Zap,
 } from "lucide-react";
 
 // ── Notification type → icon + color ────────────────────────
+// Every type the server can produce must have an entry here.
 function notifMeta(type: string): { icon: React.ElementType; color: string; bg: string } {
   switch (type) {
-    case "message":         return { icon: MessageSquare, color: "text-blue-400",   bg: "bg-blue-500/15" };
-    case "guide_like":      return { icon: Heart,          color: "text-red-400",    bg: "bg-red-500/15" };
-    case "guide_comment":   return { icon: BookOpen,        color: "text-primary",    bg: "bg-primary/15" };
-    case "post_like":       return { icon: Heart,           color: "text-red-400",    bg: "bg-red-500/15" };
-    case "post_reply":      return { icon: MessageSquare,   color: "text-blue-400",   bg: "bg-blue-500/15" };
-    case "group_join":      return { icon: Users,           color: "text-emerald-400",bg: "bg-emerald-500/15" };
-    case "listing_save":    return { icon: Bookmark,        color: "text-amber-400",  bg: "bg-amber-500/15" };
-    case "listing_inquiry": return { icon: MessageSquare,   color: "text-blue-400",   bg: "bg-blue-500/15" };
-    case "review":          return { icon: Star,            color: "text-amber-400",  bg: "bg-amber-500/15" };
-    default:                return { icon: Bell,            color: "text-muted-foreground", bg: "bg-secondary" };
+    // Messaging
+    case "message":           return { icon: MessageSquare, color: "text-blue-400",    bg: "bg-blue-500/15" };
+    case "listing_inquiry":   return { icon: MessageSquare, color: "text-blue-400",    bg: "bg-blue-500/15" };
+    // Reactions & likes
+    case "guide_like":        return { icon: Heart,         color: "text-red-400",     bg: "bg-red-500/15" };
+    case "post_like":         return { icon: Heart,         color: "text-red-400",     bg: "bg-red-500/15" };
+    case "post_react":        return { icon: Zap,           color: "text-primary",     bg: "bg-primary/15" };
+    case "project_like":      return { icon: Heart,         color: "text-red-400",     bg: "bg-red-500/15" };
+    // Comments & replies
+    case "guide_comment":     return { icon: BookOpen,      color: "text-primary",     bg: "bg-primary/15" };
+    case "post_reply":        return { icon: MessageSquare, color: "text-blue-400",    bg: "bg-blue-500/15" };
+    // Social
+    case "new_follower":      return { icon: UserPlus,      color: "text-emerald-400", bg: "bg-emerald-500/15" };
+    case "new_post":          return { icon: Bell,          color: "text-primary",     bg: "bg-primary/15" };
+    // Groups
+    case "group_join":        return { icon: Users,         color: "text-emerald-400", bg: "bg-emerald-500/15" };
+    case "join_request":      return { icon: Users,         color: "text-amber-400",   bg: "bg-amber-500/15" };
+    case "join_approved":     return { icon: ShieldCheck,   color: "text-emerald-400", bg: "bg-emerald-500/15" };
+    case "join_denied":       return { icon: ShieldAlert,   color: "text-red-400",     bg: "bg-red-500/15" };
+    // Listings
+    case "listing_save":      return { icon: Bookmark,      color: "text-amber-400",   bg: "bg-amber-500/15" };
+    case "listing_expired":   return { icon: AlertCircle,   color: "text-red-400",     bg: "bg-red-500/15" };
+    case "listing_expiry_warning": return { icon: AlertCircle, color: "text-amber-400", bg: "bg-amber-500/15" };
+    case "listing_refresh":   return { icon: RefreshCw,     color: "text-blue-400",    bg: "bg-blue-500/15" };
+    // Reviews
+    case "review":            return { icon: Star,          color: "text-amber-400",   bg: "bg-amber-500/15" };
+    // Events
+    case "event_rsvp":        return { icon: CalendarDays,  color: "text-emerald-400", bg: "bg-emerald-500/15" };
+    // Projects
+    case "project_update":    return { icon: Wrench,        color: "text-primary",     bg: "bg-primary/15" };
+    // Badges
+    case "badge_awarded":     return { icon: Tag,           color: "text-yellow-400",  bg: "bg-yellow-500/15" };
+    default:                  return { icon: Bell,          color: "text-muted-foreground", bg: "bg-secondary" };
   }
 }
 
@@ -37,7 +63,10 @@ function linkFor(notif: any): string {
     case "group":    return `/groups/${notif.linkId}`;
     case "message":  return `/messages`;
     case "profile":  return `/profile/${notif.linkId}`;
-    default:         return "/";
+    case "project":  return `/projects/${notif.linkId}`;
+    case "event":    return `/events`;
+    case "post":     return notif.linkId ? `/feed` : `/feed`;
+    default:         return `/feed`;
   }
 }
 

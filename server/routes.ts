@@ -1301,6 +1301,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         comment: req.body.comment,
         type: req.body.type,
       });
+      // Notify reviewee
+      (storage as any).createNotification({
+        userId: req.body.revieweeId,
+        type: "review",
+        title: `${currentUser.displayName} left you a ${req.body.rating}★ review`,
+        body: req.body.comment?.slice(0, 100) || undefined,
+        linkType: "profile",
+        linkId: req.body.revieweeId,
+        actorId: currentUser.id,
+      }).catch(() => {});
       return res.status(201).json(review);
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
@@ -1991,6 +2001,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       .from("posts")
       .update({ reaction_counts: tally, likes: Object.values(tally).reduce((a, b) => a + b, 0) })
       .eq("id", postId);
+
+    // Notify post author on first reaction (fire & forget)
+    supabaseAdminForRoutes.from("posts").select("author_id, profile_user_id").eq("id", postId).single()
+      .then(({ data: p }) => {
+        const ownerId = p?.author_id;
+        if (ownerId && ownerId !== currentUser.id) {
+          (storage as any).createNotification({
+            userId: ownerId,
+            type: "post_react",
+            title: `${currentUser.displayName} reacted to your post`,
+            linkType: p?.profile_user_id ? "profile" : "group",
+            linkId: p?.profile_user_id || postId,
+            actorId: currentUser.id,
+          }).catch(() => {});
+        }
+      }).catch(() => {});
 
     res.json({ success: true, reactions: tally });
   });

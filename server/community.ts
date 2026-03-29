@@ -201,11 +201,27 @@ communityRouter.get("/badges/:userId", async (req, res) => {
   res.json(data ?? []);
 });
 
-// Internal: award a badge (no duplicate)
+// Internal: award a badge (no duplicate) + notify user on first award
 export async function awardBadge(userId: number, badgeKey: string) {
   if (!sb) return;
-  await sb.from("user_badges")
-    .upsert({ user_id: userId, badge_key: badgeKey }, { onConflict: "user_id,badge_key", ignoreDuplicates: true });
+  const { data: existing } = await sb.from("user_badges")
+    .select("user_id").eq("user_id", userId).eq("badge_key", badgeKey).single();
+  if (existing) return; // already has it — no duplicate, no noise
+  await sb.from("user_badges").insert({ user_id: userId, badge_key: badgeKey });
+  // Notify user they earned a badge
+  const BADGE_LABELS: Record<string, string> = {
+    first_sale: "First Sale", seller_10: "Power Seller", seller_50: "Top Trader",
+    seller_100: "Legend", first_listing: "Lister", guide_author: "Guide Author",
+    guide_10: "Expert", group_founder: "Founder", group_admin: "Admin",
+    follower_10: "Rising Star", follower_100: "Influencer", follower_1k: "Icon",
+    early_adopter: "Early Adopter",
+  };
+  const label = BADGE_LABELS[badgeKey] || badgeKey;
+  await sb.from("notifications").insert({
+    user_id: userId, type: "badge_awarded",
+    title: `You earned the "${label}" badge! 🏆`,
+    link_type: "profile", link_id: userId,
+  }).then(() => null, () => null);
 }
 
 // POST /api/badges/check — trigger badge evaluation for authed user
@@ -326,6 +342,21 @@ communityRouter.post("/events/:id/rsvp", requireAuth, async (req, res) => {
     .upsert({ event_id: Number(req.params.id), user_id: user.id, status }, { onConflict: "event_id,user_id" })
     .select().single();
   if (error) return res.status(400).json({ error: error.message });
+
+  // Notify organizer (fire & forget)
+  if (status === "going") {
+    sb!.from("events").select("organizer_id, title").eq("id", Number(req.params.id)).single()
+      .then(({ data: ev }) => {
+        if (ev && ev.organizer_id !== user.id) {
+          sb!.from("notifications").insert({
+            user_id: ev.organizer_id, type: "event_rsvp",
+            title: `${user.displayName || "Someone"} is going to "${ev.title}"`,
+            link_type: "event", link_id: Number(req.params.id), actor_id: user.id,
+          }).then(() => {});
+        }
+      }).catch(() => {});
+  }
+
   res.json(data);
 });
 
@@ -476,7 +507,6 @@ communityRouter.post("/projects/:id/like", requireAuth, async (req, res) => {
 
   if (existing) {
     await sb!.from("project_likes").delete().eq("project_id", projectId).eq("user_id", user.id);
-    await sb!.from("projects").update({ like_count: sb!.rpc }).eq("id", projectId); // handled by count below
     const { count } = await sb!.from("project_likes").select("*", { count: "exact", head: true }).eq("project_id", projectId);
     await sb!.from("projects").update({ like_count: count ?? 0 }).eq("id", projectId);
     return res.json({ liked: false, count });
@@ -484,6 +514,17 @@ communityRouter.post("/projects/:id/like", requireAuth, async (req, res) => {
   await sb!.from("project_likes").insert({ project_id: projectId, user_id: user.id });
   const { count } = await sb!.from("project_likes").select("*", { count: "exact", head: true }).eq("project_id", projectId);
   await sb!.from("projects").update({ like_count: count ?? 0 }).eq("id", projectId);
+  // Notify project owner (fire & forget)
+  sb!.from("projects").select("user_id, title").eq("id", projectId).single()
+    .then(({ data: proj }) => {
+      if (proj && proj.user_id !== user.id) {
+        sb!.from("notifications").insert({
+          user_id: proj.user_id, type: "project_like",
+          title: `${user.displayName || "Someone"} liked your project "${proj.title}"`,
+          link_type: "project", link_id: projectId, actor_id: user.id,
+        }).then(() => {});
+      }
+    }).catch(() => {});
   res.json({ liked: true, count });
 });
 
