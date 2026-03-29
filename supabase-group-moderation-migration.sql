@@ -1,12 +1,12 @@
 -- ============================================================
--- WhipGuides — Group Moderation Migration
+-- WhipGuides — Group Moderation Migration (v2)
 -- Run this in the Supabase SQL Editor
--- Safe to run multiple times (IF NOT EXISTS / IF NOT EXISTS)
+-- Safe to run multiple times
 -- ============================================================
 
 SET search_path = public;
 
--- ── Ensure group_rules exists (from group-setup-migration) ────
+-- ── Ensure group_rules table exists ──────────────────────────
 CREATE TABLE IF NOT EXISTS public.group_rules (
   id         BIGSERIAL PRIMARY KEY,
   group_id   BIGINT NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
@@ -17,20 +17,33 @@ CREATE TABLE IF NOT EXISTS public.group_rules (
 );
 CREATE INDEX IF NOT EXISTS idx_group_rules_group_id ON public.group_rules(group_id, position);
 ALTER TABLE public.group_rules ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "group_rules_select" ON public.group_rules FOR SELECT USING (true);
-CREATE POLICY IF NOT EXISTS "group_rules_insert" ON public.group_rules FOR INSERT WITH CHECK (true);
-CREATE POLICY IF NOT EXISTS "group_rules_update" ON public.group_rules FOR UPDATE USING (true);
-CREATE POLICY IF NOT EXISTS "group_rules_delete" ON public.group_rules FOR DELETE USING (true);
 
--- ── Ensure avatar / setup columns exist on groups ─────────────
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='group_rules' AND policyname='group_rules_select') THEN
+    CREATE POLICY "group_rules_select" ON public.group_rules FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='group_rules' AND policyname='group_rules_insert') THEN
+    CREATE POLICY "group_rules_insert" ON public.group_rules FOR INSERT WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='group_rules' AND policyname='group_rules_update') THEN
+    CREATE POLICY "group_rules_update" ON public.group_rules FOR UPDATE USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='group_rules' AND policyname='group_rules_delete') THEN
+    CREATE POLICY "group_rules_delete" ON public.group_rules FOR DELETE USING (true);
+  END IF;
+END $$;
+
+-- ── Ensure columns exist on groups ───────────────────────────
 ALTER TABLE public.groups ADD COLUMN IF NOT EXISTS avatar TEXT;
 ALTER TABLE public.groups ADD COLUMN IF NOT EXISTS setup_complete BOOLEAN DEFAULT FALSE;
-
--- ── Extended group settings ───────────────────────────────────
 ALTER TABLE public.groups ADD COLUMN IF NOT EXISTS slow_mode_seconds INTEGER DEFAULT 0;
 ALTER TABLE public.groups ADD COLUMN IF NOT EXISTS auto_approve_members BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.groups ADD COLUMN IF NOT EXISTS post_approval_required BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.groups ADD COLUMN IF NOT EXISTS welcome_message TEXT;
+
+-- ── Ensure columns exist on posts ────────────────────────────
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;
+ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
 
 -- ── Group bans ────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.group_bans (
@@ -45,15 +58,22 @@ CREATE TABLE IF NOT EXISTS public.group_bans (
 );
 CREATE INDEX IF NOT EXISTS idx_group_bans_group ON public.group_bans(group_id);
 ALTER TABLE public.group_bans ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "group_bans_select" ON public.group_bans FOR SELECT USING (true);
-CREATE POLICY IF NOT EXISTS "group_bans_all"    ON public.group_bans FOR ALL    USING (true);
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='group_bans' AND policyname='group_bans_select') THEN
+    CREATE POLICY "group_bans_select" ON public.group_bans FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='group_bans' AND policyname='group_bans_all') THEN
+    CREATE POLICY "group_bans_all" ON public.group_bans FOR ALL USING (true);
+  END IF;
+END $$;
 
 -- ── Group moderation log ──────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public.group_mod_logs (
   id              BIGSERIAL PRIMARY KEY,
   group_id        BIGINT NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
   moderator_id    BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
-  action          TEXT NOT NULL,  -- ban, delete_post, remove_member, promote, etc.
+  action          TEXT NOT NULL,
   target_user_id  BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
   target_post_id  BIGINT,
   note            TEXT,
@@ -61,17 +81,16 @@ CREATE TABLE IF NOT EXISTS public.group_mod_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_group_mod_logs_group ON public.group_mod_logs(group_id, created_at DESC);
 ALTER TABLE public.group_mod_logs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY IF NOT EXISTS "mod_logs_select" ON public.group_mod_logs FOR SELECT USING (true);
-CREATE POLICY IF NOT EXISTS "mod_logs_insert" ON public.group_mod_logs FOR INSERT WITH CHECK (true);
 
--- ── Ensure posts.is_pinned exists (from feed migration) ───────
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT FALSE;
-ALTER TABLE public.posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='group_mod_logs' AND policyname='mod_logs_select') THEN
+    CREATE POLICY "mod_logs_select" ON public.group_mod_logs FOR SELECT USING (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename='group_mod_logs' AND policyname='mod_logs_insert') THEN
+    CREATE POLICY "mod_logs_insert" ON public.group_mod_logs FOR INSERT WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ============================================================
 -- DONE
--- Tables: group_rules, group_bans, group_mod_logs
--- Columns added: groups.avatar, setup_complete, slow_mode_seconds,
---                auto_approve_members, post_approval_required, welcome_message
---                posts.is_pinned, posts.updated_at
 -- ============================================================
