@@ -8,6 +8,7 @@ import { adsRouter, adminAdsRouter } from "./ads";
 import { businessRouter } from "./business";
 import { uploadRouter } from "./upload";
 import { videoRouter } from "./video";
+import { communityRouter } from "./community";
 import { sendEmail, listingExpiryWarningEmail, listingExpiredEmail, listingSoldConfirmEmail } from "./email";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -33,6 +34,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // BUSINESS PAGES
   // ============================================================
   app.use("/api/business", businessRouter);
+  app.use("/api/community", communityRouter);
   app.use("/api/reports", reportRouter);
 
   // ============================================================
@@ -152,6 +154,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         });
       }).catch(() => {});
+      // Badge: first listing
+      import("./community").then(({ awardBadge }) => awardBadge(currentUser.id, "first_listing")).catch(() => {});
       return res.status(201).json(listing);
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
@@ -248,6 +252,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
       sendEmail(seller.email, subject, html).catch(() => {});
     }
+
+    // Check + award badges asynchronously
+    import("./community").then(({ awardBadge }) => {
+      supabaseAdminForRoutes.from("listings").select("*", { count: "exact", head: true })
+        .eq("seller_id", currentUser.id).eq("status", "sold")
+        .then(({ count }) => {
+          if ((count ?? 0) >= 1)   awardBadge(currentUser.id, "first_sale");
+          if ((count ?? 0) >= 10)  awardBadge(currentUser.id, "seller_10");
+          if ((count ?? 0) >= 50)  awardBadge(currentUser.id, "seller_50");
+          if ((count ?? 0) >= 100) awardBadge(currentUser.id, "seller_100");
+        });
+    }).catch(() => {});
 
     return res.json({ success: true });
   });
@@ -1895,9 +1911,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     if (error && error.code !== "23505") return res.status(400).json({ error: error.message });
 
-    // Update counts
-    await Promise.all([
-      supabaseAdminForRoutes.from("users").update({ following_count: supabaseAdminForRoutes.rpc }).eq("id", currentUser.id),
+    // Notify the followed user + check follower milestone badges (fire & forget)
+    Promise.all([
+      supabaseAdminForRoutes.from("users")
+        .select("display_name").eq("id", currentUser.id).single()
+        .then(({ data: actor }) => {
+          const name = (actor as any)?.display_name || "Someone";
+          return supabaseAdminForRoutes.from("notifications").insert({
+            user_id: targetId, type: "new_follower",
+            title: `${name} started following you`,
+            link_type: "profile", link_id: currentUser.id, actor_id: currentUser.id,
+          });
+        }),
+      import("./community").then(({ awardBadge }) => {
+        supabaseAdminForRoutes.from("user_follows")
+          .select("*", { count: "exact", head: true }).eq("following_id", targetId)
+          .then(({ count }) => {
+            if ((count ?? 0) >= 10)   awardBadge(targetId, "follower_10");
+            if ((count ?? 0) >= 100)  awardBadge(targetId, "follower_100");
+            if ((count ?? 0) >= 1000) awardBadge(targetId, "follower_1k");
+          });
+      }),
     ]).catch(() => {});
 
     res.json({ success: true, following: true });

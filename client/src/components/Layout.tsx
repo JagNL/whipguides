@@ -12,6 +12,7 @@ import {
   Search, Plus, Sun, Moon, Menu, X,
   Gauge, Users, LogOut, User, MessageSquare,
   ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone, Rss, Tag, Building2,
+  CalendarDays, Wrench,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/hooks/use-auth";
@@ -41,6 +42,8 @@ const navLinks = [
   { href: "/feed", label: "Feed", icon: Rss },
   { href: "/", label: "Marketplace", icon: Gauge },
   { href: "/groups", label: "Groups", icon: Users },
+  { href: "/events", label: "Events", icon: CalendarDays },
+  { href: "/projects", label: "Projects", icon: Wrench },
   { href: "/business", label: "Businesses", icon: Building2 },
   { href: "/guides", label: "Guides", icon: BookOpen },
   { href: "/advertise", label: "Advertise", icon: Megaphone },

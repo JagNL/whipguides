@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ import {
   BookOpen, Search, Wrench, ChevronRight, Star, MapPin, UserCheck,
   Lock, Clock, CheckCircle2, XCircle, UserPlus, Eye, EyeOff, Shield,
   Trash2, Settings, Crown, UserMinus, ShieldCheck, AlertTriangle,
-  Pin, Flag, Video,
+  Pin, Flag, Video, CalendarDays,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -1028,6 +1028,138 @@ function JoinRequestsPanel({ groupId }: { groupId: number }) {
   );
 }
 
+// ─── Group Events Panel ──────────────────────────────────────
+function GroupEventsPanel({ groupId, isGroupAdmin, groupVertical }: { groupId: number; isGroupAdmin: boolean; groupVertical?: string }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const [eventDate, setEventDate] = useState("");
+  const [locationName, setLocationName] = useState("");
+  const [city, setCity] = useState("");
+  const [stateField, setStateField] = useState("");
+  const [isOnline, setIsOnline] = useState(false);
+  const [description, setDescription] = useState("");
+
+  const { data: events = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/community/events", groupId],
+    queryFn: () => apiRequest("GET", `/api/community/events?group_id=${groupId}`).then(r => r.json()),
+  });
+
+  const createMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/community/events", {
+      title, description, group_id: groupId,
+      vertical: groupVertical?.toLowerCase() || "general",
+      event_date: eventDate || undefined,
+      location_name: locationName, city, state: stateField,
+      is_online: isOnline,
+    }).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/community/events", groupId] });
+      toast({ title: "Event created" });
+      setCreateOpen(false);
+      setTitle(""); setEventDate(""); setLocationName(""); setCity(""); setStateField(""); setDescription("");
+    },
+    onError: () => toast({ title: "Error", variant: "destructive" }),
+  });
+
+  const rsvpMut = useMutation({
+    mutationFn: ({ eventId, status }: { eventId: number; status: string }) =>
+      apiRequest("POST", `/api/community/events/${eventId}/rsvp`, { status }).then(r => r.json()),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/community/events", groupId] }),
+  });
+
+  return (
+    <div>
+      {isGroupAdmin && (
+        <div className="mb-4">
+          <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-1.5" data-testid="btn-create-group-event">
+            <Plus className="w-4 h-4" /> Create Event for this Group
+          </Button>
+        </div>
+      )}
+      {isLoading ? (
+        <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-28 rounded-xl" />)}</div>
+      ) : (events as any[]).length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <CalendarDays className="w-10 h-10 mx-auto mb-3 opacity-20" />
+          <p>No events yet</p>
+          {isGroupAdmin && <p className="text-sm">Create your first group event above</p>}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {(events as any[]).map((ev: any) => (
+            <div key={ev.id} className="bg-card border border-border rounded-xl p-4 flex items-start gap-4"
+              data-testid={`group-event-${ev.id}`}>
+              <div className="shrink-0 w-12 h-12 rounded-xl bg-primary/10 flex flex-col items-center justify-center">
+                <CalendarDays className="w-5 h-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">{ev.title}</p>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5 flex-wrap">
+                  {ev.event_date && <span>{new Date(ev.event_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}
+                  {(ev.city || ev.state) && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{[ev.city, ev.state].filter(Boolean).join(", ")}</span>}
+                  {ev.is_online && <span>Online</span>}
+                  <span><Users className="w-3 h-3 inline mr-0.5" />{ev.rsvp_count || 0} going</span>
+                </div>
+                {ev.description && <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{ev.description}</p>}
+                {user && (
+                  <div className="flex items-center gap-1.5 mt-2">
+                    {["going", "maybe", "not_going"].map(s => (
+                      <button key={s} onClick={() => rsvpMut.mutate({ eventId: ev.id, status: s })}
+                        className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${ev.my_rsvp === s ? "bg-primary text-primary-foreground border-primary" : "bg-secondary border-border text-muted-foreground hover:border-primary/40"}`}>
+                        {s === "going" ? "Going" : s === "maybe" ? "Maybe" : "Can't go"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Create Event Dialog */}
+      <Dialog open={createOpen} onOpenChange={v => !v && setCreateOpen(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Create Event for Group</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Title *</label>
+              <input className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-secondary" value={title} onChange={e => setTitle(e.target.value)} placeholder="Event name" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Description</label>
+              <textarea className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-secondary resize-none" rows={3} value={description} onChange={e => setDescription(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Date & Time</label>
+              <input type="datetime-local" className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-secondary" value={eventDate} onChange={e => setEventDate(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">City</label>
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-secondary" value={city} onChange={e => setCity(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">State</label>
+                <input className="w-full px-3 py-2 text-sm rounded-lg border border-border bg-secondary" value={stateField} onChange={e => setStateField(e.target.value)} />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setCreateOpen(false)} disabled={createMut.isPending}>Cancel</Button>
+            <Button onClick={() => createMut.mutate()} disabled={!title.trim() || createMut.isPending} data-testid="btn-confirm-create-group-event">
+              {createMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create Event"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ─── GroupDetailPage ──────────────────────────────────────────
 export default function GroupDetailPage({ id }: { id: number }) {
   const { user, isAuthenticated } = useAuth();
@@ -1058,6 +1190,7 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const isGroupAdmin = isOwner || myRole === "admin" || isSiteAdmin;
 
   // Settings sheet + delete dialog state
+  const [mainTab, setMainTab] = useState<"posts" | "events">("posts");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -1304,8 +1437,22 @@ export default function GroupDetailPage({ id }: { id: number }) {
             </div>
           )}
 
-          {/* Posts feed */}
+          {/* Tab bar: Posts | Events */}
           {canSeePosts && (
+            <div className="flex items-center gap-1 mb-4 border-b border-border">
+              {(["posts", "events"] as const).map(t => (
+                <button key={t} onClick={() => setMainTab(t)}
+                  data-testid={`group-tab-${t}`}
+                  className={`px-4 py-2.5 text-sm font-semibold capitalize transition-colors border-b-2 -mb-px ${mainTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+                  {t === "posts" ? <span className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5" />Posts</span>
+                    : <span className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Events</span>}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Posts feed */}
+          {canSeePosts && mainTab === "posts" && (
             <div className="space-y-4">
               {postsLoading ? (
                 Array.from({ length: 3 }).map((_, i) => (
@@ -1327,6 +1474,11 @@ export default function GroupDetailPage({ id }: { id: number }) {
                 posts.map(post => <PostCard key={post.id} post={post} currentUserId={user?.id} groupAdminRole={myRole} />)
               )}
             </div>
+          )}
+
+          {/* Events tab */}
+          {canSeePosts && mainTab === "events" && (
+            <GroupEventsPanel groupId={id} isGroupAdmin={!!isGroupAdmin} groupVertical={group?.category} />
           )}
         </div>
 

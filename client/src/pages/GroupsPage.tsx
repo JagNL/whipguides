@@ -19,8 +19,50 @@ import {
   X, Sparkles, ChevronRight, BookOpen,
 } from "lucide-react";
 
-const CATEGORIES = ["All", "Cars", "Trucks", "ATVs", "Jet Skis", "Motorcycles", "Off-Road", "Boats", "Firearms", "Antiques", "General"];
+const VERTICALS_ROW = ["All", "Automotive", "Tech & AI", "Music", "Maker", "Outdoors", "Firearms", "Collectibles", "Powersports", "General"];
+
+const CATEGORIES = [
+  "All",
+  // Automotive
+  "Cars", "Trucks", "SUVs", "Muscle Cars", "Import Tuner", "Classic Cars", "Off-Road",
+  // Powersports
+  "Motorcycles", "ATVs", "UTVs", "Jet Skis", "Boats", "Snowmobiles", "Dirt Bikes",
+  // Tech & AI
+  "3D Printing", "Drones", "Robotics", "Electronics", "AI & Machine Learning", "Computers",
+  // Music
+  "Guitar", "Bass", "Drums", "Keys & Synth", "Recording Studio", "Live Sound",
+  // Maker
+  "Woodworking", "CNC", "Metal Fabrication", "Welding", "DIY & Homestead",
+  // Outdoors
+  "Hunting", "Fishing", "Camping", "Hiking", "Off-Grid Living",
+  // Firearms
+  "Handguns", "Rifles", "Shotguns", "Long Range", "Concealed Carry",
+  // Collectibles
+  "Antiques", "Trading Cards", "Comics", "Coins", "Memorabilia",
+  // General
+  "General",
+];
 const CREATE_CATEGORIES = CATEGORIES.filter(c => c !== "All");
+
+const VERTICAL_MAP: Record<string, string> = {
+  Cars: "automotive", Trucks: "automotive", SUVs: "automotive", "Muscle Cars": "automotive",
+  "Import Tuner": "automotive", "Classic Cars": "automotive", "Off-Road": "automotive",
+  Motorcycles: "powersports", ATVs: "powersports", UTVs: "powersports", "Jet Skis": "powersports",
+  Boats: "powersports", Snowmobiles: "powersports", "Dirt Bikes": "powersports",
+  "3D Printing": "tech", Drones: "tech", Robotics: "tech", Electronics: "tech",
+  "AI & Machine Learning": "tech", Computers: "tech",
+  Guitar: "music", Bass: "music", Drums: "music", "Keys & Synth": "music",
+  "Recording Studio": "music", "Live Sound": "music",
+  Woodworking: "maker", CNC: "maker", "Metal Fabrication": "maker", Welding: "maker",
+  "DIY & Homestead": "maker",
+  Hunting: "outdoors", Fishing: "outdoors", Camping: "outdoors", Hiking: "outdoors",
+  "Off-Grid Living": "outdoors",
+  Handguns: "firearms", Rifles: "firearms", Shotguns: "firearms", "Long Range": "firearms",
+  "Concealed Carry": "firearms",
+  Antiques: "collectibles", "Trading Cards": "collectibles", Comics: "collectibles",
+  Coins: "collectibles", Memorabilia: "collectibles",
+  General: "general",
+};
 
 // ── Browsing history hook (persists category + search affinity in memory) ──
 const _browsedCategories: string[] = [];
@@ -174,6 +216,7 @@ function SearchDropdown({ results, onClose }: { results: any[]; onClose: () => v
 // ── Main GroupsPage ──────────────────────────────────────────
 export default function GroupsPage() {
   const [activeCategory, setActiveCategory] = useState("All");
+  const [activeVertical, setActiveVertical] = useState("All");
   const [createOpen, setCreateOpen] = useState(false);
   const [wizardGroup, setWizardGroup] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -187,6 +230,7 @@ export default function GroupsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("");
+  const [groupVertical, setGroupVertical] = useState("");
   const [isPrivate, setIsPrivate] = useState(false);
 
   // Track browsed categories for suggestions
@@ -248,8 +292,9 @@ export default function GroupsPage() {
   // ── Mutations ──────────────────────────────────────────────
   const { mutate: createGroup, isPending: creating } = useMutation({
     mutationFn: async () => {
+      const vertical = groupVertical || VERTICAL_MAP[category] || "general";
       const res = await apiRequest("POST", "/api/groups", {
-        name: name.trim(), description: description.trim(), category, private: isPrivate,
+        name: name.trim(), description: description.trim(), category, private: isPrivate, vertical,
       });
       return res.json();
     },
@@ -257,7 +302,7 @@ export default function GroupsPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/groups/mine"] });
       setCreateOpen(false);
-      setName(""); setDescription(""); setCategory(""); setIsPrivate(false);
+      setName(""); setDescription(""); setCategory(""); setGroupVertical(""); setIsPrivate(false);
       // Launch setup wizard
       setWizardGroup(group);
     },
@@ -339,6 +384,17 @@ export default function GroupsPage() {
       <div className={`flex gap-6 items-start ${isAuthenticated ? "" : ""}`}>
         {/* Main content */}
         <div className="flex-1 min-w-0">
+          {/* Vertical filter row */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-3 scrollbar-hide">
+            {VERTICALS_ROW.map(v => (
+              <button key={v} onClick={() => { setActiveVertical(v); setActiveCategory("All"); }}
+                data-testid={`filter-vertical-${v.toLowerCase().replace(" ", "-")}`}
+                className={`shrink-0 px-3 py-1 text-xs font-semibold rounded-full border transition-colors ${activeVertical === v ? "bg-primary text-primary-foreground border-primary" : "bg-muted/40 border-border text-muted-foreground hover:border-primary/40"}`}>
+                {v}
+              </button>
+            ))}
+          </div>
+
           {/* Category filters */}
           <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-5 scrollbar-hide">
             {CATEGORIES.map(cat => (
@@ -519,6 +575,19 @@ export default function GroupsPage() {
                 placeholder="What's this group about? Who should join?"
                 rows={3}
               />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Vertical *</label>
+              <Select onValueChange={v => { setGroupVertical(v); }} value={groupVertical}>
+                <SelectTrigger data-testid="select-group-vertical">
+                  <SelectValue placeholder="Select a vertical..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {["automotive","tech","music","maker","outdoors","firearms","collectibles","powersports","general"].map(v => (
+                    <SelectItem key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1).replace("&", "& ")}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Category *</label>

@@ -15,6 +15,7 @@ import {
   SlidersHorizontal, TrendingUp, Zap, Shield, Search, X, MapPin,
   DollarSign, Bell, BellOff, BookmarkPlus, Clock, Sparkles, ChevronRight,
   Star, RotateCcw, Save, RefreshCw, AlertTriangle,
+  Car, Cpu, Music2, Wrench, Target, Package, Waves, Trophy,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -769,6 +770,59 @@ function LocationRadiusBar({
 // Can't use localStorage in this iframe env, so we use module state.
 let _savedLocation = { display: "", lat: undefined as number | undefined, lng: undefined as number | undefined, radius: "any" };
 
+// ── Community Verticals ─────────────────────────────────────────
+const VERTICALS = [
+  { icon: Car,     label: "Automotive",  tagline: "Cars, trucks & builds",  vertical: "automotive",  gradient: "from-blue-600/20 to-blue-900/20" },
+  { icon: Cpu,     label: "Tech & AI",   tagline: "Makers & engineers",      vertical: "tech",        gradient: "from-cyan-600/20 to-cyan-900/20" },
+  { icon: Music2,  label: "Music",       tagline: "Gear & studio talk",      vertical: "music",       gradient: "from-purple-600/20 to-purple-900/20" },
+  { icon: Wrench,  label: "Maker",       tagline: "Build & fabricate",       vertical: "maker",       gradient: "from-green-600/20 to-green-900/20" },
+  { icon: Target,  label: "Firearms",    tagline: "Range & gear",            vertical: "firearms",    gradient: "from-orange-600/20 to-orange-900/20" },
+  { icon: Package, label: "Collectibles",tagline: "Antiques & rarities",     vertical: "collectibles",gradient: "from-amber-600/20 to-amber-900/20" },
+  { icon: Waves,   label: "Powersports", tagline: "Boats, ATVs & more",      vertical: "powersports", gradient: "from-teal-600/20 to-teal-900/20" },
+  { icon: Trophy,  label: "Outdoors",    tagline: "Hunt, fish & explore",    vertical: "outdoors",    gradient: "from-emerald-600/20 to-emerald-900/20" },
+];
+
+function CommunityVerticals() {
+  const [, navigate] = useLocation();
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Communities</span>
+        <button
+          className="text-xs text-primary hover:underline"
+          onClick={() => navigate("/groups")}
+          data-testid="verticals-see-all"
+        >
+          See all
+        </button>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none" data-testid="community-verticals-row">
+        {VERTICALS.map(({ icon: Icon, label, tagline, vertical, gradient }) => (
+          <button
+            key={vertical}
+            data-testid={`vertical-card-${vertical}`}
+            onClick={() => navigate(`/groups?vertical=${vertical}`)}
+            className={`
+              flex-shrink-0 flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-white/5
+              bg-gradient-to-br ${gradient} backdrop-blur-sm
+              hover:border-primary/40 transition-all duration-150 cursor-pointer
+              min-w-[140px] h-[72px]
+            `}
+          >
+            <span className="flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg bg-white/5">
+              <Icon className="w-4 h-4 text-primary" strokeWidth={1.75} />
+            </span>
+            <span className="flex flex-col items-start min-w-0">
+              <span className="text-sm font-semibold text-foreground leading-tight truncate w-full text-left">{label}</span>
+              <span className="text-[11px] text-muted-foreground leading-tight truncate w-full text-left">{tagline}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Main HomePage ──────────────────────────────────────────────
 export default function HomePage() {
   const [location] = useLocation();
@@ -1006,6 +1060,9 @@ export default function HomePage() {
             </div>
           </div>
         )}
+
+        {/* Community Verticals Discovery Row */}
+        <CommunityVerticals />
 
         {/* Tab bar: Browse / For You / Recently Viewed */}
         <div className="flex items-center gap-1 mb-4 border-b border-border">
