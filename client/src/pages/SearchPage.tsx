@@ -4,6 +4,7 @@
  */
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
+import { navigate as hashNavigate } from "wouter/use-hash-location";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Input } from "@/components/ui/input";
@@ -191,19 +192,26 @@ function Section({ icon: Icon, title, count, children, viewAllHref }: {
 // ── Main page ────────────────────────────────────────────────
 export default function SearchPage() {
   const [location, navigate] = useLocation();
-  // In hash routing, ?q= is part of the hash path (e.g. /#/search?q=foo)
-  const searchParams = new URLSearchParams(location.split("?")[1] || "");
-  const initialQ = searchParams.get("q") || "";
+  // wouter's navigate() puts ?q= into window.location.search (real URL params).
+  // Read from there first; fall back to the hash path segment for backward compat.
+  const getQFromURL = () => {
+    const realSearch = new URLSearchParams(window.location.search);
+    if (realSearch.has("q")) return realSearch.get("q") || "";
+    const hashSearch = new URLSearchParams(location.split("?")[1] || "");
+    return hashSearch.get("q") || "";
+  };
 
-  const [query, setQuery] = useState(initialQ);
-  const [submitted, setSubmitted] = useState(initialQ);
+  const [query, setQuery] = useState(() => getQFromURL());
+  const [submitted, setSubmitted] = useState(() => getQFromURL());
   const [activeTab, setActiveTab] = useState<Tab>("all");
 
-  // Update query from URL
+  // Re-sync when the URL changes (e.g. back/forward navigation)
   useEffect(() => {
-    setQuery(initialQ);
-    setSubmitted(initialQ);
-  }, [initialQ]);
+    const q = getQFromURL();
+    setQuery(q);
+    setSubmitted(q);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location, window.location.search]);
 
   const { data, isLoading } = useQuery({
     queryKey: ["/api/search", submitted],
@@ -218,7 +226,7 @@ export default function SearchPage() {
     e?.preventDefault();
     if (query.trim().length >= 2) {
       setSubmitted(query.trim());
-      window.location.href = `${window.location.pathname}#/search?q=${encodeURIComponent(query.trim())}`;
+      hashNavigate(`/search?q=${encodeURIComponent(query.trim())}`);
     }
   };
 

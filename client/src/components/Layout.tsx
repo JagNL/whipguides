@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
+import { navigate as hashNavigate } from "wouter/use-hash-location";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -102,7 +103,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => {
                 if (e.key === "Enter" && searchQuery.trim()) {
-                  window.location.href = `${window.location.pathname}#/search?q=${encodeURIComponent(searchQuery.trim())}`;
+                  hashNavigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
                   setSearchQuery("");
                 }
               }}
@@ -274,7 +275,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => {
                   if (e.key === "Enter" && searchQuery.trim()) {
-                    window.location.href = `${window.location.pathname}#/search?q=${encodeURIComponent(searchQuery.trim())}`; setSearchQuery(""); setMobileMenuOpen(false);
+                    hashNavigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`); setSearchQuery(""); setMobileMenuOpen(false);
                   }
                 }}
               />
