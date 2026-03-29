@@ -191,6 +191,7 @@ function Section({ icon: Icon, title, count, children, viewAllHref }: {
 // ── Main page ────────────────────────────────────────────────
 export default function SearchPage() {
   const [location, navigate] = useLocation();
+  // In hash routing, ?q= is part of the hash path (e.g. /#/search?q=foo)
   const searchParams = new URLSearchParams(location.split("?")[1] || "");
   const initialQ = searchParams.get("q") || "";
 
@@ -217,7 +218,7 @@ export default function SearchPage() {
     e?.preventDefault();
     if (query.trim().length >= 2) {
       setSubmitted(query.trim());
-      navigate(`/search?q=${encodeURIComponent(query.trim())}`);
+      window.location.href = `${window.location.pathname}#/search?q=${encodeURIComponent(query.trim())}`;
     }
   };
 

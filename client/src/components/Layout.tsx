@@ -102,7 +102,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => {
                 if (e.key === "Enter" && searchQuery.trim()) {
-                  navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
+                  window.location.href = `${window.location.pathname}#/search?q=${encodeURIComponent(searchQuery.trim())}`;
                   setSearchQuery("");
                 }
               }}
@@ -274,8 +274,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 onChange={e => setSearchQuery(e.target.value)}
                 onKeyDown={e => {
                   if (e.key === "Enter" && searchQuery.trim()) {
-                    navigate(`/search?q=${encodeURIComponent(searchQuery.trim())}`);
-                    setSearchQuery(""); setMobileMenuOpen(false);
+                    window.location.href = `${window.location.pathname}#/search?q=${encodeURIComponent(searchQuery.trim())}`; setSearchQuery(""); setMobileMenuOpen(false);
                   }
                 }}
               />
