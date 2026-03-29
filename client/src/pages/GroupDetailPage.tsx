@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import ImageUploader from "@/components/ImageUploader";
 import { GuideEmbedCard } from "@/components/GuideEmbedCard";
 import { PostImageGrid } from "@/components/ImageLightbox";
+import { GroupSettingsSheet } from "@/components/GroupSettingsSheet";
 import { timeAgo } from "@/lib/utils";
 import {
   Users, MessageSquare, Heart, Share2, Plus,
@@ -837,7 +838,8 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const isOwner = user && group && user.id === group.ownerId;
   const isGroupAdmin = isOwner || myRole === "admin" || isSiteAdmin;
 
-  // Delete group state
+  // Settings sheet + delete dialog state
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const deleteMutation = useMutation({
@@ -1006,8 +1008,8 @@ export default function GroupDetailPage({ id }: { id: number }) {
                   <XCircle className="w-3.5 h-3.5" /> Request not approved
                 </p>
               )}
-              {/* Owner/admin controls */}
-              {isGroupAdmin && (
+              {/* Role badge + settings gear for members/admins/owner */}
+              {(isMember || isGroupAdmin) && (
                 <div className="flex items-center gap-2 mt-1">
                   {myRole && myRole !== "member" && (
                     <span className="flex items-center gap-1 text-xs text-primary font-semibold bg-primary/10 px-2 py-0.5 rounded-full">
@@ -1015,17 +1017,15 @@ export default function GroupDetailPage({ id }: { id: number }) {
                       {isOwner ? "Owner" : myRole === "admin" ? "Admin" : "Moderator"}
                     </span>
                   )}
-                  {(isOwner || isSiteAdmin) && (
-                    <Button
-                      data-testid="btn-delete-group"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => { setDeleteConfirmText(""); setDeleteDialogOpen(true); }}
-                      className="text-xs text-muted-foreground hover:text-destructive gap-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" /> Delete Group
-                    </Button>
-                  )}
+                  <Button
+                    data-testid="btn-group-settings"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSettingsOpen(true)}
+                    className="gap-1.5 text-xs border-border"
+                  >
+                    <Settings className="w-3.5 h-3.5" /> Settings
+                  </Button>
                 </div>
               )}
             </div>
@@ -1120,6 +1120,17 @@ export default function GroupDetailPage({ id }: { id: number }) {
           <RelatedGuides category={group.category} />
         </div>
       </div>
+
+      {/* ── Group Settings Sheet ── */}
+      {settingsOpen && group && (
+        <GroupSettingsSheet
+          group={group}
+          isOwner={!!isOwner}
+          isSiteAdmin={isSiteAdmin}
+          onClose={() => setSettingsOpen(false)}
+          onDeleteRequest={() => { setDeleteConfirmText(""); setDeleteDialogOpen(true); }}
+        />
+      )}
 
       {/* ── Delete Group Dialog ── */}
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

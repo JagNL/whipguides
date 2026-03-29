@@ -753,6 +753,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json({ isMember, role, isSuperAdmin });
   });
 
+  // ── Update group settings ──────────────────────────────────
+  app.patch("/api/groups/:id", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    const isSuperAdmin = (currentUser as any).siteRole === "super_admin";
+    // Only owner, admins, or super_admin can update
+    const { data: membership } = await supabaseAdminForRoutes
+      .from("group_members")
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single();
+    const myRole = membership?.role;
+    if (group.ownerId !== currentUser.id && myRole !== "admin" && !isSuperAdmin) {
+      return res.status(403).json({ error: "Not authorized to update this group" });
+    }
+    const allowed = ["name", "description", "private", "coverImage", "avatar"];
+    const updates: any = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    const updated = await storage.updateGroup(groupId, updates);
+    return res.json(updated);
+  });
+
   // ── Promote/demote group member role ─────────────────────────
   app.patch("/api/groups/:id/members/:userId/role", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
@@ -1401,6 +1428,58 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!q || q.length < 2) return res.json([]);
     const results = await (storage as any).searchGroupPosts(groupId, q);
     return res.json(results);
+  });
+
+  // GET /api/groups/:id/members — full member list with role, sorted (followed first for auth users)
+  app.get("/api/groups/:id/members", async (req, res) => {
+    const groupId = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+
+    const { data: members } = await supabaseAdminForRoutes
+      .from("group_members")
+      .select("user_id, role, joined_at:created_at")
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: true });
+
+    if (!members?.length) return res.json([]);
+
+    // Get followed user IDs if authenticated
+    let followedIds: Set<number> = new Set();
+    if (currentUser) {
+      const { data: follows } = await supabaseAdminForRoutes
+        .from("user_follows")
+        .select("following_id")
+        .eq("follower_id", currentUser.id);
+      followedIds = new Set((follows || []).map((f: any) => f.following_id));
+    }
+
+    // Enrich with user data
+    const userIds = members.map((m: any) => m.user_id);
+    const { data: users } = await supabaseAdminForRoutes
+      .from("users")
+      .select("id, username, display_name, avatar, verified, site_role")
+      .in("id", userIds);
+
+    const userMap = new Map((users || []).map((u: any) => [u.id, u]));
+    const enriched = members.map((m: any) => ({
+      ...userMap.get(m.user_id),
+      role: m.role,
+      joinedAt: m.joined_at,
+      isFollowed: followedIds.has(m.user_id),
+    })).filter((m: any) => m.id);
+
+    // Sort: owner first, then followed, then everyone else (alpha within groups)
+    enriched.sort((a: any, b: any) => {
+      if (a.role === "owner" && b.role !== "owner") return -1;
+      if (b.role === "owner" && a.role !== "owner") return 1;
+      if (a.isFollowed && !b.isFollowed) return -1;
+      if (b.isFollowed && !a.isFollowed) return 1;
+      if (a.role === "admin" && b.role !== "admin") return -1;
+      if (b.role === "admin" && a.role !== "admin") return 1;
+      return (a.display_name || a.username || "").localeCompare(b.display_name || b.username || "");
+    });
+
+    return res.json(enriched);
   });
 
   // GET /api/groups/:id/search/members?q=... — search members of a group
