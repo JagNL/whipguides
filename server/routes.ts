@@ -890,7 +890,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (post.guideId) guide = await storage.getGuide(post.guideId);
       return res.status(201).json({ ...post, author: currentUser, guide });
     } catch (err: any) {
-      return res.status(400).json({ error: err.message });
+      console.error("[POST group post error]", err.message);
+      return res.status(400).json({ error: err.message || "Unknown error" });
     }
   });
 
