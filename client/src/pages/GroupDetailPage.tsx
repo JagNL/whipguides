@@ -21,6 +21,7 @@ import {
   BookOpen, Search, Wrench, ChevronRight, Star, MapPin, UserCheck,
   Lock, Clock, CheckCircle2, XCircle, UserPlus, Eye, EyeOff, Shield,
   Trash2, Settings, Crown, UserMinus, ShieldCheck, AlertTriangle,
+  Pin, Flag,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -100,12 +101,26 @@ function GuideSearch({ onSelect }: { onSelect: (guide: any) => void }) {
 }
 
 // ─── PostCard ─────────────────────────────────────────────────
-function PostCard({ post, currentUserId }: { post: any; currentUserId?: number }) {
+function PostCard({ post, currentUserId, groupAdminRole }: {
+  post: any; currentUserId?: number; groupAdminRole?: string | null;
+}) {
   const { toast } = useToast();
   const [liked, setLiked] = useState(false);
   const [likes, setLikes] = useState(post.likes || 0);
   const [helped, setHelped] = useState(false);
   const [helpedCount, setHelpedCount] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState(post.content || "");
+  const [deleted, setDeleted] = useState(false);
+  const [isPinned, setIsPinned] = useState(post.isPinned || post.is_pinned || false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState("");
+  const [reportNote, setReportNote] = useState("");
+
+  const isAuthor = currentUserId === post.author?.id || currentUserId === post.authorId;
+  const isGroupMod = ["owner", "admin", "moderator"].includes(groupAdminRole || "");
+  const isGroupAdmin = ["owner", "admin"].includes(groupAdminRole || "");
 
   const { mutate: toggleLike } = useMutation({
     mutationFn: () => apiRequest("POST", `/api/posts/${post.id}/like`).then(r => r.json()),
@@ -133,8 +148,55 @@ function PostCard({ post, currentUserId }: { post: any; currentUserId?: number }
     toggleHelped();
   };
 
+  const { mutate: deletePost, isPending: deleting } = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/posts/${post.id}`);
+      return res.json();
+    },
+    onSuccess: () => { setDeleted(true); toast({ title: "Post deleted" }); },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const { mutate: saveEdit, isPending: saving } = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("PATCH", `/api/posts/${post.id}`, { content: editContent });
+      return res.json();
+    },
+    onSuccess: () => { setEditing(false); toast({ title: "Post updated" }); },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const { mutate: togglePin } = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/posts/${post.id}/pin`, { pin: !isPinned });
+      return res.json();
+    },
+    onSuccess: (data) => { setIsPinned(data.pinned); toast({ title: data.pinned ? "Post pinned" : "Post unpinned" }); },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+  });
+
+  const { mutate: submitReport, isPending: reporting } = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/posts/${post.id}/report`, { reason: reportReason, description: reportNote });
+      return res.json();
+    },
+    onSuccess: () => { setReportOpen(false); setReportReason(""); setReportNote(""); toast({ title: "Report submitted", description: "Our team will review this post." }); },
+  });
+
+  if (deleted) return null;
+
   return (
-    <div className="bg-card rounded-xl border border-border p-4" data-testid={`card-post-${post.id}`}>
+    <div className={`bg-card rounded-xl border p-4 transition-colors ${
+      isPinned ? "border-primary/40 bg-primary/5" : "border-border"
+    }`} data-testid={`card-post-${post.id}`}>
+
+      {/* Pinned banner */}
+      {isPinned && (
+        <div className="flex items-center gap-1.5 text-xs text-primary font-semibold mb-3 -mt-1">
+          <Pin className="w-3 h-3" /> Pinned Post
+        </div>
+      )}
+
       {/* Author row */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
@@ -150,17 +212,130 @@ function PostCard({ post, currentUserId }: { post: any; currentUserId?: number }
                 {post.author?.displayName}
               </span>
             </Link>
-            <p className="text-xs text-muted-foreground">{timeAgo(post.createdAt)}</p>
+            <p className="text-xs text-muted-foreground">{timeAgo(post.createdAt)}{post.updatedAt && " · edited"}</p>
           </div>
         </div>
-        <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground">
-          <MoreHorizontal className="w-4 h-4" />
-        </Button>
+
+        {/* ⋯ dropdown menu */}
+        <div className="relative">
+          <Button
+            size="icon" variant="ghost"
+            className="h-7 w-7 text-muted-foreground"
+            onClick={() => setMenuOpen(o => !o)}
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </Button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-8 z-50 bg-popover border border-border rounded-xl shadow-xl py-1.5 w-44 text-sm">
+                {/* Author actions */}
+                {isAuthor && (
+                  <>
+                    <button
+                      className="w-full text-left px-3 py-2 hover:bg-secondary flex items-center gap-2"
+                      onClick={() => { setEditing(true); setMenuOpen(false); }}
+                    >
+                      <Wrench className="w-3.5 h-3.5" /> Edit Post
+                    </button>
+                    <button
+                      className="w-full text-left px-3 py-2 hover:bg-secondary text-destructive flex items-center gap-2"
+                      onClick={() => { if (confirm("Delete this post?")) deletePost(); setMenuOpen(false); }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete Post
+                    </button>
+                    <div className="h-px bg-border mx-2 my-1" />
+                  </>
+                )}
+                {/* Mod actions */}
+                {isGroupMod && (
+                  <>
+                    <button
+                      className="w-full text-left px-3 py-2 hover:bg-secondary flex items-center gap-2"
+                      onClick={() => { togglePin(); setMenuOpen(false); }}
+                    >
+                      <Pin className="w-3.5 h-3.5 text-primary" />
+                      {isPinned ? "Unpin Post" : "Pin Post"}
+                    </button>
+                    {!isAuthor && (
+                      <button
+                        className="w-full text-left px-3 py-2 hover:bg-secondary text-destructive flex items-center gap-2"
+                        onClick={() => { if (confirm("Remove this post?")) deletePost(); setMenuOpen(false); }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Remove Post
+                      </button>
+                    )}
+                    <div className="h-px bg-border mx-2 my-1" />
+                  </>
+                )}
+                {/* Anyone can report */}
+                {!isAuthor && (
+                  <button
+                    className="w-full text-left px-3 py-2 hover:bg-secondary text-destructive flex items-center gap-2"
+                    onClick={() => { setReportOpen(true); setMenuOpen(false); }}
+                  >
+                    <Flag className="w-3.5 h-3.5" /> Report Post
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Content */}
-      {post.content && (
-        <p className="text-sm text-foreground leading-relaxed mb-3 whitespace-pre-line">{post.content}</p>
+      {/* Edit mode */}
+      {editing ? (
+        <div className="mb-3 space-y-2">
+          <Textarea
+            value={editContent}
+            onChange={e => setEditContent(e.target.value)}
+            className="bg-secondary border-border text-sm resize-none min-h-[80px]"
+            autoFocus
+          />
+          <div className="flex gap-2 justify-end">
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+            <Button size="sm" onClick={() => saveEdit()} disabled={saving || !editContent.trim()}>
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Save"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        /* Content */
+        post.content && (
+          <p className="text-sm text-foreground leading-relaxed mb-3 whitespace-pre-line">{post.content}</p>
+        )
+      )}
+
+      {/* Report dialog */}
+      {reportOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-popover border border-border rounded-2xl p-5 w-full max-w-sm shadow-2xl">
+            <h3 className="font-bold mb-1">Report Post</h3>
+            <p className="text-xs text-muted-foreground mb-3">Tell us what's wrong with this post.</p>
+            <div className="space-y-2 mb-3">
+              {["spam","harassment","hate_speech","misinformation","off_topic","inappropriate","other"].map(r => (
+                <label key={r} className={`flex items-center gap-2.5 p-2.5 rounded-xl cursor-pointer transition-colors ${
+                  reportReason === r ? "bg-primary/10 border border-primary/30" : "bg-secondary hover:bg-secondary/80"
+                }`}>
+                  <input type="radio" name="reason" value={r} checked={reportReason === r} onChange={() => setReportReason(r)} className="accent-primary" />
+                  <span className="text-sm capitalize">{r.replace("_", " ")}</span>
+                </label>
+              ))}
+            </div>
+            <Textarea
+              value={reportNote}
+              onChange={e => setReportNote(e.target.value)}
+              placeholder="Optional additional context..."
+              className="bg-secondary border-border text-sm resize-none min-h-[60px] mb-3"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" size="sm" onClick={() => setReportOpen(false)}>Cancel</Button>
+              <Button size="sm" variant="destructive" onClick={() => submitReport()} disabled={!reportReason || reporting}>
+                {reporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Submit Report"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Guide embed */}
@@ -1105,7 +1280,7 @@ export default function GroupDetailPage({ id }: { id: number }) {
                   <p className="text-sm mt-1">{isMember ? "Be the first to post — try attaching a guide!" : "Join to start posting."}</p>
                 </div>
               ) : (
-                posts.map(post => <PostCard key={post.id} post={post} currentUserId={user?.id} />)
+                posts.map(post => <PostCard key={post.id} post={post} currentUserId={user?.id} groupAdminRole={myRole} />)
               )}
             </div>
           )}

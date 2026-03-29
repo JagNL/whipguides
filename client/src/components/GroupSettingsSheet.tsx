@@ -30,6 +30,8 @@ const TABS = [
   { id: "questions",  label: "Questions",  icon: HelpCircle },
   { id: "members",    label: "Members",    icon: Users },
   { id: "invite",     label: "Invite",     icon: UserPlus },
+  { id: "moderation", label: "Moderation", icon: ShieldCheck },
+  { id: "advanced",   label: "Advanced",   icon: AlertTriangle },
 ] as const;
 
 type Tab = typeof TABS[number]["id"];
@@ -485,6 +487,19 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
               </div>
             </div>
           )}
+
+          {/* ── MODERATION ── */}
+          {tab === "moderation" && (
+            <ModerationTab group={group} isGroupMod={isOwner || isSiteAdmin} />
+          )}
+
+          {/* ── ADVANCED ── */}
+          {tab === "advanced" && isOwner && (
+            <AdvancedTab group={group} onSave={async (settings) => {
+              await apiRequest("PATCH", `/api/groups/${group.id}/settings`, settings);
+              queryClient.invalidateQueries({ queryKey: ["/api/groups", group.id] });
+            }} />
+          )}
         </div>
 
         {/* Footer — danger zone */}
@@ -513,6 +528,119 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
 }
 
 // ── Member row sub-component ──────────────────────────────────
+
+// ── Moderation Tab ────────────────────────────────────────────
+const ACTION_LABELS: Record<string, string> = {
+  ban: "Banned member", delete_post: "Removed post", remove_member: "Removed member",
+  promote: "Changed role", approve_join: "Approved join", deny_join: "Denied join",
+};
+function ModerationTab({ group, isGroupMod }: { group: any; isGroupMod: boolean }) {
+  const { toast } = useToast();
+  const [modTab, setModTab] = useState<"log" | "bans">("log");
+  const { data: logs = [], isLoading: logsLoading } = useQuery<any[]>({
+    queryKey: ["/api/groups", group.id, "mod-log"],
+    queryFn: () => apiRequest("GET", `/api/groups/${group.id}/mod-log`).then(r => r.json()),
+    enabled: modTab === "log" && isGroupMod,
+  });
+  const { data: bans = [], isLoading: bansLoading, refetch: refetchBans } = useQuery<any[]>({
+    queryKey: ["/api/groups", group.id, "bans"],
+    queryFn: () => apiRequest("GET", `/api/groups/${group.id}/bans`).then(r => r.json()),
+    enabled: modTab === "bans" && isGroupMod,
+  });
+  const unban = async (userId: number) => {
+    await apiRequest("DELETE", `/api/groups/${group.id}/members/${userId}/ban`);
+    refetchBans();
+    toast({ title: "Member unbanned" });
+  };
+  if (!isGroupMod) return <p className="text-sm text-muted-foreground text-center py-8">Moderators only.</p>;
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-1 p-1 bg-secondary rounded-xl">
+        {(["log", "bans"] as const).map(t => (
+          <button key={t} onClick={() => setModTab(t)}
+            className={`flex-1 text-xs py-1.5 rounded-lg font-medium transition-colors ${modTab === t ? "bg-background shadow-sm text-foreground" : "text-muted-foreground"}`}>
+            {t === "log" ? "Mod Log" : "Banned Members"}</button>
+        ))}
+      </div>
+      {modTab === "log" && (logsLoading ? <Skeleton className="h-20 rounded-xl" /> :
+        logs.length === 0 ? <p className="text-xs text-muted-foreground text-center py-4">No moderation actions yet.</p> :
+        <div className="space-y-1.5">{logs.map((log: any, i: number) => (
+          <div key={i} className="bg-secondary rounded-xl p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold">{ACTION_LABELS[log.action] || log.action}</span>
+              <span className="text-[10px] text-muted-foreground">{new Date(log.created_at).toLocaleDateString()}</span>
+            </div>
+            {log.note && <p className="text-xs text-muted-foreground">{log.note}</p>}
+          </div>
+        ))}</div>
+      )}
+      {modTab === "bans" && (bansLoading ? <Skeleton className="h-20 rounded-xl" /> :
+        bans.length === 0 ? <p className="text-xs text-muted-foreground text-center py-4">No banned members.</p> :
+        <div className="space-y-1.5">{bans.map((ban: any) => (
+          <div key={ban.user_id} className="bg-secondary rounded-xl p-3 flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">User #{ban.user_id}</p>
+              {ban.reason && <p className="text-xs text-muted-foreground">{ban.reason}</p>}
+              {!ban.expires_at && <p className="text-[10px] text-destructive">Permanent ban</p>}
+            </div>
+            <Button size="sm" variant="outline" className="shrink-0 text-xs h-7" onClick={() => unban(ban.user_id)}>Unban</Button>
+          </div>
+        ))}</div>
+      )}
+    </div>
+  );
+}
+
+// ── Advanced Tab ──────────────────────────────────────────────
+function AdvancedTab({ group, onSave }: { group: any; onSave: (s: any) => Promise<void> }) {
+  const { toast } = useToast();
+  const [slowMode, setSlowMode] = useState(group.slow_mode_seconds || 0);
+  const [autoApprove, setAutoApprove] = useState(group.auto_approve_members || false);
+  const [welcomeMsg, setWelcomeMsg] = useState(group.welcome_message || "");
+  const [saving, setSaving] = useState(false);
+  const SLOW_OPTIONS = [
+    { label: "Off", value: 0 }, { label: "30s", value: 30 }, { label: "1 min", value: 60 },
+    { label: "5 min", value: 300 }, { label: "15 min", value: 900 }, { label: "1 hr", value: 3600 },
+  ];
+  const save = async () => {
+    setSaving(true);
+    try { await onSave({ slow_mode_seconds: slowMode, auto_approve_members: autoApprove, welcome_message: welcomeMsg }); toast({ title: "Saved" }); }
+    catch { toast({ title: "Error", variant: "destructive" }); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl bg-secondary p-4">
+        <Label className="text-xs font-semibold mb-1.5 block">Slow Mode</Label>
+        <p className="text-xs text-muted-foreground mb-2">Limit how often members can post. Reduces spam.</p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {SLOW_OPTIONS.map(opt => (
+            <button key={opt.value} onClick={() => setSlowMode(opt.value)}
+              className={`text-xs py-1.5 px-2 rounded-lg border transition-colors ${slowMode === opt.value ? "bg-primary text-white border-primary" : "border-border hover:border-primary/40 text-muted-foreground"}`}>
+              {opt.label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center justify-between rounded-xl bg-secondary p-4">
+        <div>
+          <p className="text-sm font-medium">Auto-approve Members</p>
+          <p className="text-xs text-muted-foreground">Skip manual review of join requests</p>
+        </div>
+        <Switch checked={autoApprove} onCheckedChange={setAutoApprove} />
+      </div>
+      <div>
+        <Label className="text-xs font-semibold mb-1.5 block">Welcome Message</Label>
+        <Textarea value={welcomeMsg} onChange={e => setWelcomeMsg(e.target.value)}
+          placeholder="Sent to new members when they join..." maxLength={500}
+          className="bg-secondary border-border resize-none min-h-[80px] text-sm" />
+      </div>
+      <Button className="w-full bg-primary hover:bg-primary/90" onClick={save} disabled={saving}>
+        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Advanced Settings"}
+      </Button>
+    </div>
+  );
+}
+
 function MemberRow({ member, groupId, isOwner, isSiteAdmin, userId, onRole, onRemove }: any) {
   const [showActions, setShowActions] = useState(false);
   const isMe = member.id === userId;

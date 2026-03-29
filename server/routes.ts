@@ -922,6 +922,253 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ============================================================
+  // POST / GROUP MODERATION ACTIONS
+  // ============================================================
+
+  // DELETE /api/posts/:id — author or group admin/owner can delete
+  app.delete("/api/posts/:id", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const postId = Number(req.params.id);
+    const { data: post } = await supabaseAdminForRoutes
+      .from("posts").select("author_id, group_id").eq("id", postId).single();
+    if (!post) return res.status(404).json({ error: "Post not found" });
+
+    const isSiteAdmin = (currentUser as any).siteRole === "super_admin";
+    const isAuthor = post.author_id === currentUser.id;
+
+    // Check if user is group admin/owner/moderator
+    let isGroupMod = false;
+    if (post.group_id) {
+      const { data: mem } = await supabaseAdminForRoutes
+        .from("group_members").select("role")
+        .eq("group_id", post.group_id).eq("user_id", currentUser.id).single();
+      isGroupMod = ["owner", "admin", "moderator"].includes(mem?.role || "");
+    }
+
+    if (!isAuthor && !isGroupMod && !isSiteAdmin) {
+      return res.status(403).json({ error: "Not authorized to delete this post" });
+    }
+
+    await supabaseAdminForRoutes.from("posts").delete().eq("id", postId);
+
+    // Decrement post count
+    if (post.group_id) {
+      const { data: g } = await supabaseAdminForRoutes
+        .from("groups").select("post_count").eq("id", post.group_id).single();
+      if (g) await supabaseAdminForRoutes.from("groups")
+        .update({ post_count: Math.max(0, (g.post_count || 1) - 1) }).eq("id", post.group_id);
+    }
+
+    // Log moderation action
+    if (isGroupMod && !isAuthor) {
+      await supabaseAdminForRoutes.from("group_mod_logs" as any).insert({
+        group_id: post.group_id,
+        moderator_id: currentUser.id,
+        action: "delete_post",
+        target_user_id: post.author_id,
+        target_post_id: postId,
+        note: "Post deleted by moderator",
+      }).catch(() => null);
+    }
+
+    return res.json({ success: true });
+  });
+
+  // PATCH /api/posts/:id — edit post content (author only)
+  app.patch("/api/posts/:id", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const postId = Number(req.params.id);
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: "Content is required" });
+
+    const { data: post } = await supabaseAdminForRoutes
+      .from("posts").select("author_id").eq("id", postId).single();
+    if (!post) return res.status(404).json({ error: "Post not found" });
+    if (post.author_id !== currentUser.id) {
+      return res.status(403).json({ error: "You can only edit your own posts" });
+    }
+    const { data: updated } = await supabaseAdminForRoutes
+      .from("posts").update({ content: content.trim(), updated_at: new Date().toISOString() })
+      .eq("id", postId).select().single();
+    return res.json(updated);
+  });
+
+  // POST /api/posts/:id/pin — pin/unpin (group admin+ only)
+  app.post("/api/posts/:id/pin", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const postId = Number(req.params.id);
+    const { pin = true } = req.body;
+
+    const { data: post } = await supabaseAdminForRoutes
+      .from("posts").select("group_id, is_pinned").eq("id", postId).single();
+    if (!post) return res.status(404).json({ error: "Post not found" });
+
+    const isSiteAdmin = (currentUser as any).siteRole === "super_admin";
+    const { data: mem } = await supabaseAdminForRoutes
+      .from("group_members").select("role")
+      .eq("group_id", post.group_id).eq("user_id", currentUser.id).single();
+    const isGroupMod = ["owner", "admin", "moderator"].includes(mem?.role || "");
+
+    if (!isGroupMod && !isSiteAdmin) {
+      return res.status(403).json({ error: "Only moderators can pin posts" });
+    }
+
+    // Unpin any currently pinned post first (only one pinned post per group)
+    if (pin) {
+      await supabaseAdminForRoutes.from("posts")
+        .update({ is_pinned: false }).eq("group_id", post.group_id).eq("is_pinned", true);
+    }
+
+    await supabaseAdminForRoutes.from("posts").update({ is_pinned: pin }).eq("id", postId);
+    return res.json({ pinned: pin });
+  });
+
+  // POST /api/groups/:id/members/:userId/ban — ban member (group admin+ only)
+  // Ban prevents the user from joining again or posting
+  app.post("/api/groups/:id/members/:userId/ban", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const targetId = Number(req.params.userId);
+    const { reason, duration } = req.body; // duration in hours, null = permanent
+
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+
+    const isSiteAdmin = (currentUser as any).siteRole === "super_admin";
+    const { data: mem } = await supabaseAdminForRoutes
+      .from("group_members").select("role")
+      .eq("group_id", groupId).eq("user_id", currentUser.id).single();
+    const isGroupMod = ["owner", "admin"].includes(mem?.role || "");
+
+    if (!isGroupMod && !isSiteAdmin) {
+      return res.status(403).json({ error: "Only admins can ban members" });
+    }
+    if (targetId === group.ownerId) {
+      return res.status(400).json({ error: "Cannot ban the group owner" });
+    }
+
+    const expiresAt = duration
+      ? new Date(Date.now() + duration * 3600000).toISOString() : null;
+
+    // Remove from group first
+    await supabaseAdminForRoutes.from("group_members")
+      .delete().eq("group_id", groupId).eq("user_id", targetId);
+
+    // Record ban
+    await supabaseAdminForRoutes.from("group_bans" as any).upsert({
+      group_id: groupId,
+      user_id: targetId,
+      banned_by: currentUser.id,
+      reason: reason?.trim() || null,
+      expires_at: expiresAt,
+      created_at: new Date().toISOString(),
+    }, { onConflict: "group_id,user_id" }).catch(() => null);
+
+    // Log it
+    await supabaseAdminForRoutes.from("group_mod_logs" as any).insert({
+      group_id: groupId,
+      moderator_id: currentUser.id,
+      action: "ban",
+      target_user_id: targetId,
+      note: reason || "No reason given",
+    }).catch(() => null);
+
+    return res.json({ success: true });
+  });
+
+  // DELETE /api/groups/:id/members/:userId/ban — unban a member
+  app.delete("/api/groups/:id/members/:userId/ban", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const targetId = Number(req.params.userId);
+
+    const isSiteAdmin = (currentUser as any).siteRole === "super_admin";
+    const { data: mem } = await supabaseAdminForRoutes
+      .from("group_members").select("role")
+      .eq("group_id", groupId).eq("user_id", currentUser.id).single();
+    const isGroupMod = ["owner", "admin"].includes(mem?.role || "");
+    if (!isGroupMod && !isSiteAdmin) return res.status(403).json({ error: "Not authorized" });
+
+    await supabaseAdminForRoutes.from("group_bans" as any)
+      .delete().eq("group_id", groupId).eq("user_id", targetId);
+    return res.json({ success: true });
+  });
+
+  // GET /api/groups/:id/bans — list banned members
+  app.get("/api/groups/:id/bans", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const isSiteAdmin = (currentUser as any).siteRole === "super_admin";
+    const { data: mem } = await supabaseAdminForRoutes
+      .from("group_members").select("role")
+      .eq("group_id", groupId).eq("user_id", currentUser.id).single();
+    if (!["owner", "admin", "moderator"].includes(mem?.role || "") && !isSiteAdmin) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    const { data: bans } = await supabaseAdminForRoutes
+      .from("group_bans" as any).select("*").eq("group_id", groupId)
+      .order("created_at", { ascending: false });
+    return res.json(bans || []);
+  });
+
+  // GET /api/groups/:id/mod-log — moderation activity log
+  app.get("/api/groups/:id/mod-log", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const isSiteAdmin = (currentUser as any).siteRole === "super_admin";
+    const { data: mem } = await supabaseAdminForRoutes
+      .from("group_members").select("role")
+      .eq("group_id", groupId).eq("user_id", currentUser.id).single();
+    if (!["owner", "admin", "moderator"].includes(mem?.role || "") && !isSiteAdmin) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    const { data: logs } = await supabaseAdminForRoutes
+      .from("group_mod_logs" as any).select("*").eq("group_id", groupId)
+      .order("created_at", { ascending: false }).limit(100);
+    return res.json(logs || []);
+  });
+
+  // PATCH /api/groups/:id/settings — extended settings (slow mode, auto-approve, etc.)
+  app.patch("/api/groups/:id/settings", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const group = await storage.getGroup(groupId);
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    const isSiteAdmin = (currentUser as any).siteRole === "super_admin";
+    if (group.ownerId !== currentUser.id && !isSiteAdmin) {
+      return res.status(403).json({ error: "Owner only" });
+    }
+    const allowed = ["slow_mode_seconds", "auto_approve_members", "post_approval_required", "welcome_message"];
+    const updates: any = {};
+    for (const key of allowed) if (req.body[key] !== undefined) updates[key] = req.body[key];
+    const { data } = await supabaseAdminForRoutes.from("groups")
+      .update(updates).eq("id", groupId).select().single();
+    return res.json(data);
+  });
+
+  // POST /api/posts/:id/report — report a post within a group
+  app.post("/api/posts/:id/report", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const postId = Number(req.params.id);
+    const { reason, description } = req.body;
+    if (!reason) return res.status(400).json({ error: "Reason required" });
+
+    const { data: post } = await supabaseAdminForRoutes
+      .from("posts").select("group_id, author_id").eq("id", postId).single();
+    if (!post) return res.status(404).json({ error: "Post not found" });
+
+    await supabaseAdminForRoutes.from("reports").insert({
+      reporter_id: currentUser.id,
+      target_type: "post",
+      target_id: postId,
+      reason,
+      description: description?.trim() || null,
+    }).catch(() => null);
+
+    return res.json({ success: true });
+  });
+
   // POST /api/posts/:id/helped — toggle "this helped me" reaction
   app.post("/api/posts/:id/helped", requireAuth, async (req, res) => {
     const postId = Number(req.params.id);
