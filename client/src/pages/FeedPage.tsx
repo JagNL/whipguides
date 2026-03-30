@@ -612,10 +612,10 @@ function FeedSidebar({ myGroups }: { myGroups: any[] }) {
               <Link key={g.id} href={`/groups/${g.id}`}>
                 <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors cursor-pointer group">
                   <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 text-xs font-bold text-primary overflow-hidden">
-                    {g.avatar ? (
-                      <img src={g.avatar} alt="" className="w-full h-full object-cover" />
+                    {(g.avatar || g.coverImage) ? (
+                      <img src={g.avatar || g.coverImage} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      g.name[0].toUpperCase()
+                      g.name?.[0]?.toUpperCase() ?? "G"
                     )}
                   </div>
                   <div className="min-w-0">

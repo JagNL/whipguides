@@ -486,12 +486,16 @@ export class SupabaseStorage implements IStorage {
       private: group.private || false,
     }).select().single();
     if (error) throw new Error(error.message);
-    // Auto-add owner as a member — ignore if already exists
-    await supabaseAdmin.from("group_members").insert({
+    // Auto-add owner as a member with role=owner
+    const { error: memberErr } = await supabaseAdmin.from("group_members").insert({
       user_id: group.ownerId,
       group_id: data.id,
       role: 'owner',
-    }).select().single().then(() => null, () => null);
+    });
+    // Increment member_count to 1 for the owner (only if insert succeeded — avoids double-count on retry)
+    if (!memberErr) {
+      await supabaseAdmin.from("groups").update({ member_count: 1 }).eq("id", data.id);
+    }
     return this.mapGroup(data);
   }
 

@@ -1303,7 +1303,14 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const isGroupAdmin = isOwner || myRole === "admin" || isSiteAdmin;
 
   // Settings sheet + delete dialog state
-  const [mainTab, setMainTab] = useState<"posts" | "events" | "guides">("posts");
+  const [mainTab, setMainTab] = useState<"posts" | "events" | "guides" | "members">("posts");
+
+  // Members list — loaded when Members tab is active
+  const { data: membersList = [], isLoading: membersListLoading } = useQuery<any[]>({
+    queryKey: ["/api/groups", id, "members"],
+    queryFn: () => apiRequest("GET", `/api/groups/${id}/members`).then(r => r.json()),
+    enabled: mainTab === "members",
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -1553,13 +1560,14 @@ export default function GroupDetailPage({ id }: { id: number }) {
           {/* Tab bar: Posts | Events */}
           {canSeePosts && (
             <div className="flex items-center gap-1 mb-4 border-b border-border">
-              {(["posts", "events", "guides"] as const).map(t => (
+              {(["posts", "events", "guides", "members"] as const).map(t => (
                 <button key={t} onClick={() => setMainTab(t)}
                   data-testid={`group-tab-${t}`}
                   className={`px-4 py-2.5 text-sm font-semibold capitalize transition-colors border-b-2 -mb-px ${mainTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
                   {t === "posts" ? <span className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5" />Posts</span>
                     : t === "events" ? <span className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Events</span>
-                    : <span className="flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" />Guides</span>}
+                    : t === "guides" ? <span className="flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" />Guides</span>
+                    : <span className="flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />Members{group?.memberCount ? <span className="text-[10px] bg-secondary text-muted-foreground rounded-full px-1.5 py-0.5">{group.memberCount}</span> : null}</span>}
                 </button>
               ))}
             </div>
@@ -1598,6 +1606,47 @@ export default function GroupDetailPage({ id }: { id: number }) {
           {/* Guides tab */}
           {canSeePosts && mainTab === "guides" && (
             <GroupGuidesPanel groupId={id} isGroupAdmin={!!isGroupAdmin} currentUserId={user?.id} />
+          )}
+
+          {/* Members tab */}
+          {canSeePosts && mainTab === "members" && (
+            <div className="space-y-2">
+              {membersListLoading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 bg-card rounded-xl border border-border">
+                    <Skeleton className="w-10 h-10 rounded-full shrink-0" />
+                    <div className="space-y-1.5 flex-1"><Skeleton className="h-4 w-32" /><Skeleton className="h-3 w-20" /></div>
+                  </div>
+                ))
+              ) : membersList.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground bg-card rounded-xl border border-border">
+                  <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="font-semibold">No members yet</p>
+                </div>
+              ) : (
+                membersList.map((m: any) => (
+                  <Link key={m.id} href={`/profile/${m.id}`}>
+                    <div className="flex items-center gap-3 p-3 bg-card rounded-xl border border-border hover:border-primary/40 transition-colors cursor-pointer group">
+                      <Avatar className="w-10 h-10 shrink-0">
+                        <AvatarImage src={m.avatar} />
+                        <AvatarFallback className="bg-primary/20 text-primary font-bold">{(m.display_name || m.username || "?")[0].toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{m.display_name || m.username}</p>
+                          {m.verified && <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />}
+                          {m.role === "owner" && <span className="text-[10px] bg-orange-500/15 text-orange-400 font-bold px-1.5 py-0.5 rounded-full">Owner</span>}
+                          {m.role === "admin" && <span className="text-[10px] bg-blue-500/15 text-blue-400 font-bold px-1.5 py-0.5 rounded-full">Admin</span>}
+                          {m.role === "moderator" && <span className="text-[10px] bg-purple-500/15 text-purple-400 font-bold px-1.5 py-0.5 rounded-full">Mod</span>}
+                        </div>
+                        <p className="text-xs text-muted-foreground">@{m.username}</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-primary transition-colors shrink-0" />
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
           )}
         </div>
 

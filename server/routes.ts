@@ -509,6 +509,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const group = await storage.getGroup(Number(req.params.id));
     if (!group) return res.status(404).json({ error: "Group not found" });
     const owner = await storage.getUser(group.ownerId);
+
+    // Self-heal: if member_count is 0 but group_members has rows, resync.
+    // This fixes groups created before the member_count increment was added.
+    if ((group.memberCount ?? 0) === 0) {
+      const { count } = await supabaseAdminForRoutes
+        .from("group_members")
+        .select("user_id", { count: "exact", head: true })
+        .eq("group_id", group.id);
+      if (count && count > 0) {
+        await supabaseAdminForRoutes
+          .from("groups")
+          .update({ member_count: count })
+          .eq("id", group.id);
+        (group as any).memberCount = count;
+      }
+    }
+
     return res.json({ ...group, owner });
   });
 
