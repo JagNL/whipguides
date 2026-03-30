@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
 import {
-  DollarSign, ToggleLeft, ToggleRight, CheckCircle2, XCircle,
+  DollarSign, CheckCircle2, XCircle,
   Settings, BarChart2, ListChecks, Users, Download, RefreshCw,
   ShieldCheck, AlertTriangle, TrendingUp,
 } from "lucide-react";
@@ -17,21 +17,21 @@ import {
 import { GUIDE_VERTICALS } from "@/lib/guide-verticals";
 import { VERTICAL_ICONS } from "@/components/CreateGuideSteps";
 import { Wrench } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 
 type SubTab = "settings" | "queue" | "payouts" | "analytics";
 
-// ── Kill switch toggle ─────────────────────────────────────────
+// ── Kill switch toggle — uses shadcn Switch for correct rendering ──
 function KillSwitch({ enabled, onChange, saving }: { enabled: boolean; onChange: (v: boolean) => void; saving: boolean }) {
   return (
-    <div className={`flex items-center justify-between gap-4 rounded-xl border-2 p-5 transition-colors ${
-      enabled ? "border-green-500/50 bg-green-500/5" : "border-red-500/50 bg-red-500/5"
+    <div className={`flex items-center justify-between gap-6 rounded-xl border-2 p-5 transition-all duration-200 ${
+      enabled
+        ? "border-green-500/60 bg-green-950/40"
+        : "border-red-500/60 bg-red-950/40"
     }`}>
-      <div>
-        <p className="font-bold text-base flex items-center gap-2">
-          {enabled
-            ? <><ToggleRight className="w-5 h-5 text-green-400" /><span className="text-green-400">Revenue Share ENABLED</span></>
-            : <><ToggleLeft className="w-5 h-5 text-red-400" /><span className="text-red-400">Revenue Share DISABLED</span></>
-          }
+      <div className="flex-1">
+        <p className={`font-bold text-lg ${enabled ? "text-green-400" : "text-red-400"}`}>
+          Revenue Share {enabled ? "ENABLED" : "DISABLED"}
         </p>
         <p className="text-xs text-muted-foreground mt-1 max-w-lg">
           {enabled
@@ -39,16 +39,17 @@ function KillSwitch({ enabled, onChange, saving }: { enabled: boolean; onChange:
             : "All payout calculations are paused. Enabling will resume tracking and prepare monthly payouts."}
         </p>
       </div>
-      <button
+      <Switch
         data-testid="toggle-revenue-share"
-        onClick={() => onChange(!enabled)}
+        checked={enabled}
+        onCheckedChange={onChange}
         disabled={saving}
-        className={`relative w-16 h-9 rounded-full border-2 transition-all shrink-0 ${
-          enabled ? "bg-green-500 border-green-500" : "bg-red-500 border-red-500"
+        className={`scale-[1.4] origin-right ${
+          enabled
+            ? "data-[state=checked]:bg-green-500"
+            : "data-[state=unchecked]:bg-red-500"
         }`}
-      >
-        <span className={`absolute top-1 w-7 h-7 rounded-full bg-white transition-transform shadow-sm ${enabled ? "translate-x-8" : "translate-x-0.5"}`} />
-      </button>
+      />
     </div>
   );
 }
