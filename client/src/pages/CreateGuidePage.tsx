@@ -222,8 +222,10 @@ export default function CreateGuidePage() {
           {form.coverImageId && cfUrl && (
             <img src={`${cfUrl}/${form.coverImageId}/public`} alt="Cover" className="w-20 h-20 object-cover rounded-lg border border-border" />
           )}
-          <AvatarUploader currentImageId={form.coverImageId} onUpload={id => update("coverImageId", id)}
-            label={form.coverImageId ? "Change Cover" : "Upload Cover Image"} />
+          <AvatarUploader
+            currentUrl={form.coverImageId && cfUrl ? `${cfUrl}/${form.coverImageId}/public` : null}
+            onUpload={(id, previewUrl) => update("coverImageId", id)}
+          />
         </div>
       </div>
       <div className="space-y-1.5">

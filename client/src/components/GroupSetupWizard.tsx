@@ -43,18 +43,23 @@ interface GroupSetupWizardProps {
 
 // ── Step 1: Visuals ──────────────────────────────────────
 function VisualsStep({
-  groupName, coverImageId, avatarId,
+  groupName, coverImageId, avatarId, avatarPreviewUrl,
   onCoverChange, onAvatarChange,
 }: {
   groupName: string;
   coverImageId: string;
   avatarId: string;
+  // Blob / CDN URL for instant preview — separate from the imageId saved to DB
+  avatarPreviewUrl: string | null;
   onCoverChange: (id: string) => void;
-  onAvatarChange: (id: string) => void;
+  // Receives both the DB imageId AND the displayable preview URL
+  onAvatarChange: (id: string, previewUrl: string) => void;
 }) {
   const cfBase = useCfUrl();
   const coverSrc = resolveImageUrl(cfBase, coverImageId);
-  const avatarSrc = resolveImageUrl(cfBase, avatarId);
+  // Prefer the local blob/CDN preview URL (set immediately on upload),
+  // fall back to resolving the imageId through CF base (handles existing groups)
+  const avatarSrc = avatarPreviewUrl || resolveImageUrl(cfBase, avatarId);
 
   return (
     <div className="space-y-6">
@@ -89,7 +94,6 @@ function VisualsStep({
           onChange={ids => onCoverChange(ids[0] || "")}
           maxImages={1}
           label="Upload Cover Photo"
-          metadata={{ type: "cover" }}
         />
       </div>
 
@@ -99,6 +103,7 @@ function VisualsStep({
           A square icon for your group. Shows in search results and member lists.
         </p>
         <div className="flex items-center gap-4">
+          {/* Static square preview — mirrors what shows in the cover overlay */}
           <div className="w-16 h-16 rounded-xl border border-border overflow-hidden bg-secondary shrink-0">
             {avatarSrc ? (
               <img src={avatarSrc} alt="Avatar" className="w-full h-full object-cover" />
@@ -106,10 +111,11 @@ function VisualsStep({
               <div className="w-full h-full flex items-center justify-center text-2xl opacity-30">🏁</div>
             )}
           </div>
+          {/* AvatarUploader: pass currentUrl (displayable URL), and capture previewUrl from callback */}
           <AvatarUploader
-            currentImageId={avatarId}
-            onUpload={onAvatarChange}
-            label={avatarId ? "Change Avatar" : "Upload Avatar"}
+            currentUrl={avatarSrc || null}
+            onUpload={(imageId, previewUrl) => onAvatarChange(imageId, previewUrl)}
+            size={64}
           />
         </div>
       </div>
@@ -403,12 +409,14 @@ function QuestionsStep({
 }
 
 // ── Step 4: Launch ───────────────────────────────────────
-function LaunchStep({ group, coverImageId, avatarId, rulesCount, invitedCount }: {
-  group: any; coverImageId: string; avatarId: string; rulesCount: number; invitedCount: number;
+function LaunchStep({ group, coverImageId, avatarId, avatarPreviewUrl, rulesCount, invitedCount }: {
+  group: any; coverImageId: string; avatarId: string;
+  avatarPreviewUrl: string | null;
+  rulesCount: number; invitedCount: number;
 }) {
   const cfBase = useCfUrl();
   const coverSrc = resolveImageUrl(cfBase, coverImageId);
-  const avatarSrc = resolveImageUrl(cfBase, avatarId);
+  const avatarSrc = avatarPreviewUrl || resolveImageUrl(cfBase, avatarId);
 
   const checklist = [
     { label: "Group created", done: true },
@@ -491,6 +499,8 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
   // Wizard state
   const [coverImageId, setCoverImageId] = useState("");
   const [avatarId, setAvatarId] = useState("");
+  // Separate preview URL (blob / CDN URL) for instant display — imageId alone can't render
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState<string | null>(null);
   const [rules, setRules] = useState(DEFAULT_RULES.map(r => ({ ...r })));
   const [questions, setQuestions] = useState<{ question: string; required: boolean }[]>([]);
   const [invited, setInvited] = useState<any[]>([]);
@@ -589,8 +599,12 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
                 groupName={group.name}
                 coverImageId={coverImageId}
                 avatarId={avatarId}
+                avatarPreviewUrl={avatarPreviewUrl}
                 onCoverChange={setCoverImageId}
-                onAvatarChange={setAvatarId}
+                onAvatarChange={(id, previewUrl) => {
+                  setAvatarId(id);
+                  setAvatarPreviewUrl(previewUrl);
+                }}
               />
             )}
             {step === 1 && (
@@ -618,6 +632,7 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
                 group={group}
                 coverImageId={coverImageId}
                 avatarId={avatarId}
+                avatarPreviewUrl={avatarPreviewUrl}
                 rulesCount={rules.filter(r => r.title.trim()).length}
                 invitedCount={invited.length}
               />
