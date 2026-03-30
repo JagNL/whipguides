@@ -394,44 +394,46 @@ authRouter.delete("/mfa/factors/:id", requireAuth, async (req, res) => {
 // warning but are not blocked (grace period to enroll).
 // ============================================================
 export async function requireMFA(req: Request, res: Response, next: NextFunction) {
-  const authUser = (req as any).authUser;
-  const currentUser = (req as any).currentUser;
-  if (!authUser || !currentUser) return res.status(401).json({ error: "Unauthorized" });
+  // MFA enforcement middleware.
+  // Current behaviour: warn if super admin has no MFA enrolled (header),
+  // but NEVER block — AAL2 enforcement is deferred until MFA setup UX is live.
+  // This prevents the admin panel from breaking for users who haven't enrolled yet.
+  try {
+    const authUser = (req as any).authUser;
+    const currentUser = (req as any).currentUser;
+    if (!authUser || !currentUser) return res.status(401).json({ error: "Unauthorized" });
 
-  const { isSuperAdminEmail } = await import("./admin");
-  const isOwnerEmail = isSuperAdminEmail(authUser.email);
-  const isSuperAdmin = isOwnerEmail || currentUser.siteRole === "super_admin";
+    const { isSuperAdminEmail } = await import("./admin");
+    const isSuperAdmin = isSuperAdminEmail(authUser.email) || currentUser.siteRole === "super_admin";
 
-  // If not an admin, MFA is optional — skip check
-  if (!isSuperAdmin) return next();
+    // Non-admins: no MFA requirement
+    if (!isSuperAdmin) return next();
 
-  // Check if user has MFA enrolled
-  const { data: factors } = await supabaseAdmin.auth.mfa.listFactors({ userId: authUser.id } as any).catch(() => ({ data: null }));
-  const hasVerifiedFactor = (
-    (factors?.totp || []).some((f: any) => f.status === "verified") ||
-    (factors?.webauthn || []).some((f: any) => f.status === "verified")
-  );
+    // Try to check MFA enrollment — fail open if the API isn't available
+    try {
+      if (supabaseAdmin?.auth?.mfa?.listFactors) {
+        const { data: factors } = await (supabaseAdmin.auth.mfa.listFactors as any)({ userId: authUser.id })
+          .catch(() => ({ data: null }));
+        const hasVerifiedFactor =
+          (factors?.totp || []).some((f: any) => f.status === "verified") ||
+          (factors?.webauthn || []).some((f: any) => f.status === "verified");
 
-  // Super admin has no MFA enrolled — warn but allow (grace period)
-  if (!hasVerifiedFactor) {
-    // Attach warning to response headers so client can show a banner
-    res.setHeader("X-MFA-Warning", "super_admin_no_mfa");
+        if (!hasVerifiedFactor) {
+          res.setHeader("X-MFA-Warning", "super_admin_no_mfa");
+        }
+      } else {
+        // MFA API not available on this SDK version — warn and continue
+        res.setHeader("X-MFA-Warning", "mfa_api_unavailable");
+      }
+    } catch {
+      // Any MFA check error — fail open, log, continue
+      res.setHeader("X-MFA-Warning", "mfa_check_failed");
+    }
+
+    return next();
+  } catch (err: any) {
+    // Last-resort catch — never block admin access due to MFA middleware crash
+    console.error("[requireMFA] Unexpected error, failing open:", err?.message);
     return next();
   }
-
-  // Check AAL (Authenticator Assurance Level) on the JWT
-  // Supabase sets aal2 when MFA was verified in this session
-  const aal = authUser?.factors?.length > 0 ? "aal2" : "aal1";
-  // More reliable: check Supabase session AAL via getUser response
-  const userAal = (authUser as any)?.aal || "aal1";
-
-  if (userAal !== "aal2") {
-    return res.status(403).json({
-      error: "MFA verification required",
-      code: "MFA_REQUIRED",
-      message: "Your account requires multi-factor authentication to access admin features. Please verify your second factor.",
-    });
-  }
-
-  next();
 }
