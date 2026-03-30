@@ -28,6 +28,8 @@ interface AuthContextValue {
   session: AuthSession | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  needsMFAChallenge: boolean;
+  clearMFAChallenge: () => void;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, username: string, displayName: string) => Promise<void>;
   loginWithOAuth: (provider: "google" | "facebook" | "apple") => Promise<void>;
@@ -99,6 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [needsMFAChallenge, setNeedsMFAChallenge] = useState(false);
 
   const applySession = useCallback((newSession: AuthSession, newUser: AuthUser) => {
     storeSession(newSession);
@@ -161,11 +164,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(timer);
   }, [session, user, applySession, clearSession]);
 
+  const clearMFAChallenge = useCallback(() => {
+    setNeedsMFAChallenge(false);
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     const res = await apiRequest("POST", "/api/auth/login", { email, password });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     applySession(data.session, data.user);
+    // After applySession: if user has MFA enrolled, trigger MFA challenge
+    if (data.user?.mfaEnabled) {
+      setNeedsMFAChallenge(true);
+    }
   }, [applySession]);
 
   const register = useCallback(async (email: string, password: string, username: string, displayName: string) => {
@@ -200,6 +211,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       applySession(json.session, json.user);
+      // After OAuth login: if user has MFA enrolled, trigger MFA challenge
+      if (json.user?.mfaEnabled) {
+        setNeedsMFAChallenge(true);
+      }
       return true;
     } catch {
       return false;
@@ -230,6 +245,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       isLoading,
       isAuthenticated: !!user,
+      needsMFAChallenge,
+      clearMFAChallenge,
       login,
       register,
       loginWithOAuth,

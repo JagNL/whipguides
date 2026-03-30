@@ -1,7 +1,7 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { supabaseAdmin } from "./supabase";
 import { storage } from "./storage";
-import { requireAuth } from "./auth";
+import { requireAuth, requireMFA } from "./auth";
 
 // ============================================================
 // SUPER ADMIN EMAIL — set via environment variable
@@ -64,7 +64,7 @@ export async function requireSuperAdmin(req: Request, res: Response, next: NextF
 // All routes require requireAuth + requireAdmin
 // ============================================================
 export const adminRouter = Router();
-adminRouter.use(requireAuth, requireAdmin);
+adminRouter.use(requireAuth, requireMFA, requireAdmin);
 
 // ── Dashboard stats ──────────────────────────────────────────
 adminRouter.get("/stats", async (req, res) => {
@@ -80,6 +80,10 @@ adminRouter.get("/stats", async (req, res) => {
     supabaseAdmin.from("users").select("id", { count: "exact", head: true }).eq("banned", true),
   ]);
 
+  const currentUser = (req as any).currentUser;
+  const authUser = (req as any).authUser;
+  const isSuperAdmin = isSuperAdminEmail(authUser?.email) || currentUser?.siteRole === "super_admin";
+
   res.json({
     totalUsers: users.count ?? 0,
     totalListings: listings.count ?? 0,
@@ -87,6 +91,7 @@ adminRouter.get("/stats", async (req, res) => {
     totalGroups: groups.count ?? 0,
     pendingReports: reports.count ?? 0,
     bannedUsers: bannedUsers.count ?? 0,
+    isSuperAdmin,  // authoritative server-side check
   });
 });
 
@@ -174,35 +179,69 @@ adminRouter.post("/users/:id/unban", async (req, res) => {
 
 // Promote / demote site role (super admin only)
 adminRouter.post("/users/:id/role", requireSuperAdmin, async (req, res) => {
-  const { role } = req.body;
+  const { role, adminPermissions, permissionTemplate } = req.body;
   const adminUser = (req as any).currentUser;
+  const authUser = (req as any).authUser;
 
-  if (!["user", "site_admin"].includes(role)) {
-    return res.status(400).json({ error: "Invalid role. Use 'user' or 'site_admin'" });
+  const validRoles = ["user", "site_admin", "super_admin"];
+  if (!validRoles.includes(role)) {
+    return res.status(400).json({ error: `Invalid role. Use: ${validRoles.join(", ")}` });
   }
 
-  const { data: target } = await supabaseAdmin.from("users").select("email").eq("id", req.params.id).single();
+  // Only the platform owner (hardcoded email) can grant super_admin
+  if (role === "super_admin" && !isSuperAdminEmail(authUser.email)) {
+    return res.status(403).json({ error: "Only the platform owner can grant super_admin" });
+  }
+
+  const { data: target } = await supabaseAdmin
+    .from("users").select("email").eq("id", req.params.id).single();
   if (isSuperAdminEmail(target?.email)) {
-    return res.status(403).json({ error: "Cannot change the super admin's role" });
+    return res.status(403).json({ error: "Cannot change the platform owner's role" });
   }
 
-  await supabaseAdmin.from("users").update({ site_role: role }).eq("id", req.params.id);
+  // Build permission set if provided
+  const updates: any = { site_role: role };
+  if (role !== "user") {
+    if (permissionTemplate) {
+      const { ROLE_TEMPLATES } = await import("./permissions");
+      const tmpl = ROLE_TEMPLATES[permissionTemplate];
+      if (tmpl) {
+        const perms: Record<string, boolean> = {};
+        for (const p of tmpl.permissions) perms[p] = true;
+        updates.admin_permissions = perms;
+      }
+    } else if (adminPermissions && typeof adminPermissions === "object") {
+      updates.admin_permissions = adminPermissions;
+    }
+  } else {
+    updates.admin_permissions = {}; // clear all permissions when demoting
+  }
+
+  await supabaseAdmin.from("users").update(updates).eq("id", req.params.id);
 
   await supabaseAdmin.from("admin_actions").insert({
     admin_id: adminUser.id,
     action: `set_role_${role}`,
     target_type: "user",
     target_id: Number(req.params.id),
-    notes: null,
+    notes: permissionTemplate ? `template: ${permissionTemplate}` : null,
   });
 
   res.json({ success: true });
 });
 
-// Verify / unverify user
+// Verify / unverify with audit log
 adminRouter.post("/users/:id/verify", async (req, res) => {
+  const adminUser = (req as any).currentUser;
   const { verified } = req.body;
   await supabaseAdmin.from("users").update({ verified }).eq("id", req.params.id);
+  await supabaseAdmin.from("admin_actions").insert({
+    admin_id: adminUser.id,
+    action: verified ? "verify_user" : "unverify_user",
+    target_type: "user",
+    target_id: Number(req.params.id),
+    notes: null,
+  }).catch(() => {});
   res.json({ success: true });
 });
 
@@ -319,6 +358,44 @@ adminRouter.delete("/groups/:id", async (req, res) => {
     admin_id: adminUser.id, action: "delete_group",
     target_type: "group", target_id: Number(req.params.id), notes: req.body.reason,
   });
+  res.json({ success: true });
+});
+
+// GET /api/admin/groups/:id/members
+adminRouter.get("/groups/:id/members", async (_req, res) => {
+  const { data } = await supabaseAdmin
+    .from("group_members")
+    .select("user_id, role, joined_at, user:users!group_members_user_id_fkey(id, username, display_name, avatar, verified, site_role)")
+    .eq("group_id", Number(_req.params.id))
+    .order("role");
+  res.json(data || []);
+});
+
+// PATCH /api/admin/groups/:id/members/:userId — change role or remove
+adminRouter.patch("/groups/:id/members/:userId", async (req, res) => {
+  const { role } = req.body;
+  if (!["owner", "admin", "moderator", "member"].includes(role)) {
+    return res.status(400).json({ error: "Invalid role" });
+  }
+  await supabaseAdmin.from("group_members")
+    .update({ role })
+    .eq("group_id", Number(req.params.id))
+    .eq("user_id", Number(req.params.userId));
+  res.json({ success: true });
+});
+
+// DELETE /api/admin/groups/:id/members/:userId — remove from group
+adminRouter.delete("/groups/:id/members/:userId", async (req, res) => {
+  const adminUser = (req as any).currentUser;
+  await supabaseAdmin.from("group_members")
+    .delete()
+    .eq("group_id", Number(req.params.id))
+    .eq("user_id", Number(req.params.userId));
+  await supabaseAdmin.from("admin_actions").insert({
+    admin_id: adminUser.id, action: "remove_group_member",
+    target_type: "group", target_id: Number(req.params.id),
+    notes: `removed user ${req.params.userId}`,
+  }).catch(() => {});
   res.json({ success: true });
 });
 

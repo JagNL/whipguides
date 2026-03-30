@@ -104,16 +104,22 @@ function UsersTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     onSuccess: () => { toast({ title: "User unbanned" }); refetch(); },
   });
 
+  const [verifyTarget, setVerifyTarget] = useState<any>(null);
+  const [promoteTarget, setPromoteTarget] = useState<any>(null);
+  const [promoteRole, setPromoteRole] = useState("site_admin");
+  const [promoteTemplate, setPromoteTemplate] = useState("site_admin");
+
   const roleMutation = useMutation({
-    mutationFn: ({ id, role }: { id: number; role: string }) =>
-      apiRequest("POST", `/api/admin/users/${id}/role`, { role }).then(r => r.json()),
-    onSuccess: () => { toast({ title: "Role updated" }); refetch(); },
+    mutationFn: ({ id, role, template }: { id: number; role: string; template?: string }) =>
+      apiRequest("POST", `/api/admin/users/${id}/role`, { role, permissionTemplate: template }).then(r => r.json()),
+    onSuccess: () => { toast({ title: "Role updated" }); refetch(); setPromoteTarget(null); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const verifyMutation = useMutation({
     mutationFn: ({ id, verified }: { id: number; verified: boolean }) =>
       apiRequest("POST", `/api/admin/users/${id}/verify`, { verified }).then(r => r.json()),
-    onSuccess: () => { toast({ title: "Verification updated" }); refetch(); },
+    onSuccess: () => { toast({ title: "Verification updated" }); refetch(); setVerifyTarget(null); },
   });
 
   return (
@@ -176,19 +182,20 @@ function UsersTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end flex-wrap">
-                      {/* Verify toggle */}
+                      {/* Verify toggle — with confirmation */}
                       <Button size="sm" variant="ghost" className="h-7 text-xs gap-1"
-                        onClick={() => verifyMutation.mutate({ id: user.id, verified: !user.verified })}>
+                        title={user.verified ? "Remove verified badge" : "Grant verified badge — marks this user as trusted/authentic"}
+                        onClick={() => setVerifyTarget(user)}>
                         {user.verified
                           ? <><CheckCircle className="w-3.5 h-3.5 text-primary" /> Verified</>
                           : <><Star className="w-3.5 h-3.5" /> Verify</>}
                       </Button>
-                      {/* Role toggle (super admin only) */}
+                      {/* Role management (super admin only) */}
                       {isSuperAdmin && user.site_role !== "super_admin" && (
                         <Button size="sm" variant="ghost" className="h-7 text-xs gap-1"
-                          onClick={() => roleMutation.mutate({ id: user.id, role: user.site_role === "site_admin" ? "user" : "site_admin" })}>
+                          onClick={() => { setPromoteTarget(user); setPromoteRole(user.site_role === "site_admin" ? "user" : "site_admin"); setPromoteTemplate(user.site_role === "site_admin" ? "" : "site_admin"); }}>
                           <Shield className="w-3.5 h-3.5" />
-                          {user.site_role === "site_admin" ? "Demote" : "Make Admin"}
+                          {user.site_role === "site_admin" ? "Change Role" : "Set Role"}
                         </Button>
                       )}
                       {/* Ban toggle */}
@@ -232,9 +239,7 @@ function UsersTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Ban @{banTarget?.username}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will prevent them from logging in. You can unban at any time.
-            </AlertDialogDescription>
+            <AlertDialogDescription>This will prevent them from logging in. You can unban at any time.</AlertDialogDescription>
           </AlertDialogHeader>
           <Input placeholder="Reason (optional)" value={banReason} onChange={e => setBanReason(e.target.value)} className="my-2" />
           <AlertDialogFooter>
@@ -246,6 +251,84 @@ function UsersTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Verify confirmation dialog */}
+      <AlertDialog open={!!verifyTarget} onOpenChange={() => setVerifyTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{verifyTarget?.verified ? "Remove Verified Badge" : "Grant Verified Badge"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {verifyTarget?.verified
+                ? `This will remove the verified ✓ badge from @${verifyTarget?.username}. Their posts and profile will no longer show as verified.`
+                : `This grants @${verifyTarget?.username} a verified ✓ badge. Use this for real businesses, public figures, or trusted community members. It signals authenticity to other users.`
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={verifyTarget?.verified ? "bg-destructive hover:bg-destructive/90" : ""}
+              onClick={() => verifyMutation.mutate({ id: verifyTarget.id, verified: !verifyTarget.verified })}>
+              {verifyTarget?.verified ? "Remove Badge" : "Grant Verified Badge"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Role / Promote dialog */}
+      <Dialog open={!!promoteTarget} onOpenChange={() => setPromoteTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set Role — @{promoteTarget?.username}</DialogTitle>
+            <DialogDescription>Choose a role and permission template. Templates set a default permission set you can customize later in the Permissions tab.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Role</Label>
+              <Select value={promoteRole} onValueChange={setPromoteRole}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="user">User — no admin access</SelectItem>
+                  <SelectItem value="site_admin">Site Admin — limited admin access</SelectItem>
+                  <SelectItem value="super_admin">Super Admin — full access (owner only)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {promoteRole !== "user" && (
+              <div className="space-y-1.5">
+                <Label>Permission Template</Label>
+                <Select value={promoteTemplate} onValueChange={setPromoteTemplate}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="super_admin">Super Admin — full access</SelectItem>
+                    <SelectItem value="content_moderator">Content Moderator — moderate posts/users</SelectItem>
+                    <SelectItem value="ads_manager">Ads Manager — advertising + affiliate</SelectItem>
+                    <SelectItem value="community_manager">Community Manager — groups + moderation</SelectItem>
+                    <SelectItem value="guide_curator">Guide Curator — guides + AI extraction</SelectItem>
+                    <SelectItem value="site_admin">Site Admin — basic moderation</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Fine-tune permissions anytime in the Permissions tab.</p>
+              </div>
+            )}
+            {promoteRole === "super_admin" && (
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+                <p className="text-xs text-amber-400 font-semibold">Only the platform owner can grant Super Admin.</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Super Admins have near-full access. Use sparingly.</p>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-2 justify-end">
+            <Button variant="outline" onClick={() => setPromoteTarget(null)}>Cancel</Button>
+            <Button
+              onClick={() => roleMutation.mutate({ id: promoteTarget.id, role: promoteRole, template: promoteTemplate || undefined })}
+              disabled={roleMutation.isPending}
+            >
+              {roleMutation.isPending ? "Saving..." : "Save Role"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -568,9 +651,9 @@ export default function AdminPage() {
     enabled: isAuthenticated,
   });
 
-  const isSuperAdmin = (user as any)?.siteRole === "super_admin" ||
-    user?.username === "todd" || // fallback — email check happens server-side
-    false;
+  // Use the server-authoritative isSuperAdmin from /api/admin/stats
+  // The server checks the actual email against SUPER_ADMIN_EMAILS — this is the only reliable check
+  const isSuperAdmin = adminCheck?.isSuperAdmin === true;
 
   if (authLoading || checkLoading) {
     return (

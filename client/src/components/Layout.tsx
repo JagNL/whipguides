@@ -12,11 +12,12 @@ import {
   Search, Plus, Sun, Moon, Menu, X,
   Gauge, Users, LogOut, User, MessageSquare,
   ShieldCheck, ChevronDown, Shield, BookOpen, Megaphone, Rss, Tag, Building2,
-  CalendarDays, Wrench,
+  CalendarDays, Wrench, ShieldAlert,
 } from "lucide-react";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthModal } from "@/components/AuthModal";
+import { MFAChallenge } from "@/components/MFAChallenge";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── Logo ────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [authOpen, setAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [location, navigate] = useLocation();
-  const { user, isAuthenticated, isLoading, logout } = useAuth();
+  const { user, isAuthenticated, isLoading, logout, needsMFAChallenge, clearMFAChallenge, refreshUser } = useAuth();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -245,6 +246,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     </>
                   )}
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/settings/security" className="flex items-center gap-2 cursor-pointer">
+                      <ShieldAlert className="w-4 h-4" /> Security Settings
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={handleLogout}
                     className="text-destructive focus:text-destructive gap-2 cursor-pointer"
@@ -341,6 +348,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Auth Modal */}
       <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} defaultMode={authMode} />
+
+      {/* MFA Challenge — shown after login when user has MFA enrolled */}
+      <MFAChallenge
+        open={needsMFAChallenge}
+        onVerified={(_newSession) => {
+          clearMFAChallenge();
+          refreshUser();
+        }}
+        onCancel={() => {
+          clearMFAChallenge();
+          logout();
+        }}
+      />
     </div>
   );
 }

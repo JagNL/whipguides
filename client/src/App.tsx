@@ -28,6 +28,7 @@ import { CreateBusinessPage } from "@/pages/CreateBusinessPage";
 import EventsPage from "@/pages/EventsPage";
 import ProjectsPage from "@/pages/ProjectsPage";
 import ProjectDetailPage from "@/pages/ProjectDetailPage";
+import SecuritySettingsPage from "@/pages/SecuritySettingsPage";
 import NotFound from "@/pages/not-found";
 
 export default function App() {
@@ -60,6 +61,7 @@ export default function App() {
             <Route path="/events" component={() => <Layout><EventsPage /></Layout>} />
             <Route path="/projects" component={() => <Layout><ProjectsPage /></Layout>} />
             <Route path="/projects/:id" component={({ params }) => <Layout><ProjectDetailPage id={Number(params.id)} /></Layout>} />
+            <Route path="/settings/security" component={() => <Layout><SecuritySettingsPage /></Layout>} />
             <Route component={NotFound} />
           </Switch>
         </Router>
