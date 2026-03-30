@@ -14,10 +14,25 @@ export interface GuidePart {
   price?: number;
 }
 
+export interface GuideAnnotation {
+  id: string;           // uuid — stable across edits
+  imageUrl: string;     // which image this pin belongs to
+  x: number;           // 0-100 percent from left
+  y: number;           // 0-100 percent from top
+  type: "fastener" | "torque" | "warning" | "note" | "measurement" | "fluid";
+  label: string;        // short label shown on pin e.g. "M10×1.25"
+  detail: string;       // full info e.g. "35 ft-lbs · 17mm socket"
+  size?: string;        // fastener size e.g. "M10" or "3/8\"" 
+  torqueSpec?: string;  // e.g. "35 ft-lbs" — pulled into torque table
+  socketSize?: string;  // e.g. "17mm"
+  qty?: number;         // quantity of this fastener in the step
+}
+
 export interface GuideStep {
   title: string;
   description: string;
   imageUrls?: string[];
+  annotations?: GuideAnnotation[];  // per-step, per-image pins
   tools?: string[];
   parts?: string[];
   estimatedTime?: string;

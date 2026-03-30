@@ -9,11 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { AvatarUploader } from "@/components/ImageUploader";
+import ImageUploader, { AvatarUploader } from "@/components/ImageUploader";
+import { AnnotationEditorDialog } from "@/components/GuideAnnotations";
+import type { Annotation } from "@/components/GuideAnnotations";
 import { useCfUrl } from "@/hooks/use-cf-url";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, CheckCircle2,
-  Car, BookOpen, ListOrdered, Eye,
+  Car, BookOpen, ListOrdered, Eye, ScanLine,
 } from "lucide-react";
 import type { GuideStep, GuidePart } from "@/../../server/storage";
 
@@ -61,7 +63,7 @@ interface FormData {
   steps: GuideStep[];
 }
 
-const EMPTY_STEP: GuideStep = { title: "", description: "", imageUrls: [], tools: [], estimatedTime: "" };
+const EMPTY_STEP: GuideStep = { title: "", description: "", imageUrls: [], annotations: [], tools: [], estimatedTime: "" };
 
 export default function CreateGuidePage() {
   const [, navigate] = useLocation();
@@ -79,6 +81,8 @@ export default function CreateGuidePage() {
   const cfUrl = useCfUrl();
   const [newTool, setNewTool] = useState("");
   const [newPart, setNewPart] = useState({ name: "", link: "", price: "" });
+  // Annotation editor state: { stepIdx, imageUrl }
+  const [annotating, setAnnotating] = useState<{ stepIdx: number; imageUrl: string } | null>(null);
 
   // Redirect if not authenticated
   if (!isAuthenticated) {
@@ -467,8 +471,62 @@ export default function CreateGuidePage() {
               className="bg-secondary"
             />
           </div>
+
+          {/* Step photos + annotation */}
+          <div className="space-y-2">
+            <Label>Step Photos &amp; Annotations</Label>
+            <ImageUploader
+              value={step.imageUrls ?? []}
+              onChange={urls => updateStep(idx, "imageUrls", urls)}
+              maxImages={6}
+              label=""
+              hint="Upload photos, then annotate with pins showing bolt locations, torque specs, etc."
+            />
+            {(step.imageUrls ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {(step.imageUrls ?? []).map((url, imgIdx) => {
+                  const resolvedUrl = url.startsWith("http") || url.startsWith("data:") ? url : `${cfUrl}/${url}/public`;
+                  const pinCount = (step.annotations ?? []).filter(a => a.imageUrl === resolvedUrl).length;
+                  return (
+                    <button
+                      key={imgIdx}
+                      type="button"
+                      onClick={() => setAnnotating({ stepIdx: idx, imageUrl: resolvedUrl })}
+                      className="relative group rounded-lg overflow-hidden border-2 border-border hover:border-primary transition-colors"
+                      data-testid={`button-annotate-${idx}-${imgIdx}`}
+                    >
+                      <img src={resolvedUrl} alt="" className="w-24 h-16 object-cover" />
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                        <ScanLine className="w-4 h-4 text-white" />
+                        <span className="text-white text-xs font-semibold">Annotate</span>
+                      </div>
+                      {pinCount > 0 && (
+                        <span className="absolute top-1 right-1 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                          {pinCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       ))}
+
+      {/* Annotation editor dialog */}
+      {annotating && (() => {
+        const step = form.steps[annotating.stepIdx];
+        return (
+          <AnnotationEditorDialog
+            open
+            onClose={() => setAnnotating(null)}
+            imageUrl={annotating.imageUrl}
+            annotations={(step.annotations ?? []) as Annotation[]}
+            onChange={anns => updateStep(annotating.stepIdx, "annotations", anns)}
+          />
+        );
+      })()}
 
       <Button
         type="button"

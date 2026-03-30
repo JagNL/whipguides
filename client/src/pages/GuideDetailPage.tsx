@@ -15,8 +15,11 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Heart, Eye, Clock, Wrench, Package, ChevronLeft, BookOpen,
   Trash2, MessageSquare, Send, Car, CheckCircle2, Share2, Users,
+  ScanLine, Printer,
 } from "lucide-react";
 import { useCfUrl } from "@/hooks/use-cf-url";
+import { AnnotatedImage, TorqueSpecsTable, HardwareList } from "@/components/GuideAnnotations";
+import type { Annotation } from "@/components/GuideAnnotations";
 import type { Guide, GuideComment } from "@/../../server/storage";
 
 function difficultyColor(d: string) {
@@ -146,6 +149,13 @@ export default function GuideDetailPage({ id }: { id: number }) {
   const [optimisticLiked, setOptimisticLiked] = useState<boolean | null>(null);
   const [optimisticLikes, setOptimisticLikes] = useState<number | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  // Step progress tracker — checked step indices (in-memory per session)
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+  const toggleStep = (i: number) => setCompletedSteps(prev => {
+    const next = new Set(prev);
+    next.has(i) ? next.delete(i) : next.add(i);
+    return next;
+  });
 
   const cfUrl = useCfUrl();
 
@@ -401,45 +411,106 @@ export default function GuideDetailPage({ id }: { id: number }) {
       </div>
 
       {/* Steps */}
-      {guide.steps.length > 0 && (
+      {guide.steps.length > 0 && (<>
         <div className="mb-10">
+          {/* Progress bar */}
+          {guide.steps.length > 1 && (
+            <div className="mb-5 bg-card border border-border rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Progress</span>
+                <span className="text-xs text-muted-foreground">{completedSteps.size} / {guide.steps.length} steps</span>
+              </div>
+              <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ width: `${(completedSteps.size / guide.steps.length) * 100}%` }}
+                />
+              </div>
+              {completedSteps.size === guide.steps.length && (
+                <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1.5 font-semibold">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> All steps complete!
+                </p>
+              )}
+            </div>
+          )}
+
           <h2 className="text-display text-lg font-extrabold mb-5 flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-primary" />
             Steps
           </h2>
           <div className="space-y-6">
-            {guide.steps.map((step, idx) => (
+            {guide.steps.map((step, idx) => {
+              const isComplete = completedSteps.has(idx);
+              const stepAnnotations = (step.annotations ?? []) as Annotation[];
+              return (
               <div
                 key={idx}
-                className="bg-card border border-border rounded-xl p-6"
+                className={`bg-card border rounded-xl p-6 transition-colors ${
+                  isComplete ? "border-emerald-500/30 bg-emerald-500/5" : "border-border"
+                }`}
                 data-testid={`card-step-${idx}`}
               >
                 <div className="flex items-start gap-4">
-                  {/* Step number circle */}
-                  <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold shrink-0 mt-0.5">
-                    {idx + 1}
-                  </div>
+                  {/* Step complete checkbox */}
+                  <button
+                    onClick={() => toggleStep(idx)}
+                    className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 mt-0.5 transition-all border-2 ${
+                      isComplete
+                        ? "bg-emerald-500 border-emerald-500 text-white"
+                        : "bg-primary/15 border-primary text-primary hover:bg-primary hover:text-white"
+                    }`}
+                    title={isComplete ? "Mark incomplete" : "Mark complete"}
+                    data-testid={`button-step-complete-${idx}`}
+                  >
+                    {isComplete ? <CheckCircle2 className="w-4 h-4" /> : idx + 1}
+                  </button>
+
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-sm mb-2">{step.title}</h3>
+                    <h3 className={`font-semibold text-sm mb-2 ${
+                      isComplete ? "line-through text-muted-foreground" : ""
+                    }`}>{step.title}</h3>
                     <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap mb-3">
                       {step.description}
                     </p>
 
-                    {/* Step images */}
+                    {/* Annotated step images */}
                     {step.imageUrls && step.imageUrls.length > 0 && (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
-                        {step.imageUrls.map((url, imgIdx) => (
-                          <img
-                            key={imgIdx}
-                            src={url.includes("/") && !url.startsWith("http") ? `${cfUrl}/${url}/public` : url}
-                            alt={`Step ${idx + 1} image ${imgIdx + 1}`}
-                            className="w-full h-32 object-cover rounded-lg border border-border"
-                          />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                        {step.imageUrls.map((url, imgIdx) => {
+                          const resolvedUrl = url.startsWith("http") || url.startsWith("data:") ? url : `${cfUrl}/${url}/public`;
+                          const hasAnnotations = stepAnnotations.some(a => a.imageUrl === resolvedUrl);
+                          return hasAnnotations ? (
+                            <AnnotatedImage
+                              key={imgIdx}
+                              imageUrl={resolvedUrl}
+                              annotations={stepAnnotations}
+                              stepIndex={idx}
+                            />
+                          ) : (
+                            <img
+                              key={imgIdx}
+                              src={resolvedUrl}
+                              alt={`Step ${idx + 1} image ${imgIdx + 1}`}
+                              className="w-full rounded-xl border border-border object-cover max-h-64"
+                            />
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Annotation legend for this step */}
+                    {stepAnnotations.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {stepAnnotations.map((ann, ai) => (
+                          <span key={ai} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground flex items-center gap-1">
+                            <span className="font-bold text-foreground">{ai + 1}</span> {ann.label}
+                            {ann.torqueSpec && <span className="text-amber-400 font-semibold">{ann.torqueSpec}</span>}
+                          </span>
                         ))}
                       </div>
                     )}
 
-                    {/* Step-level tools/parts */}
+                    {/* Step-level tools */}
                     {(step.tools?.length || 0) > 0 && (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {step.tools!.map((t, ti) => (
@@ -450,7 +521,6 @@ export default function GuideDetailPage({ id }: { id: number }) {
                       </div>
                     )}
 
-                    {/* Estimated time for this step */}
                     {step.estimatedTime && (
                       <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
                         <Clock className="w-3 h-3" /> ~{step.estimatedTime}
@@ -459,10 +529,14 @@ export default function GuideDetailPage({ id }: { id: number }) {
                   </div>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </div>
-      )}
+
+        {/* Torque specs + hardware aggregated from all annotations */}
+        <TorqueSpecsTable steps={guide.steps.map(s => ({ title: s.title, annotations: (s.annotations ?? []) as Annotation[] }))} />
+        <HardwareList steps={guide.steps.map(s => ({ annotations: (s.annotations ?? []) as Annotation[] }))} />
+      </>)}
 
       {/* Like button */}
       <div className="flex items-center gap-4 py-6 border-t border-b border-border mb-10">
