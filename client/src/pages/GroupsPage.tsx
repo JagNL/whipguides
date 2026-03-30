@@ -114,12 +114,14 @@ function GroupCard({ group, compact = false }: { group: any; compact?: boolean }
   }
 
   return (
-    <Link href={`/groups/${group.id}`}>
+    <Link href={`/groups/${group.id}`} className="block h-full">
+      {/* flex flex-col h-full ensures every card stretches to the tallest in its row */}
       <div
-        className="bg-card rounded-xl border border-border overflow-hidden hover-elevate cursor-pointer group transition-colors hover:border-primary/40"
+        className="bg-card rounded-xl border border-border overflow-hidden hover-elevate cursor-pointer group transition-colors hover:border-primary/40 flex flex-col h-full"
         data-testid={`card-group-${group.id}`}
       >
-        <div className="relative h-36 bg-secondary overflow-hidden">
+        {/* Fixed-height cover — always 144px regardless of content below */}
+        <div className="relative h-36 bg-secondary overflow-hidden shrink-0">
           {group.coverImage ? (
             <img
               src={group.coverImage}
@@ -141,10 +143,12 @@ function GroupCard({ group, compact = false }: { group: any; compact?: boolean }
             <Badge className="bg-primary/90 text-primary-foreground text-xs">{group.category}</Badge>
           </div>
         </div>
-        <div className="p-4">
+        {/* flex-col + flex-1 stretches this section; footer is always pinned to bottom */}
+        <div className="p-4 flex flex-col flex-1">
           <h3 className="font-bold text-base mb-1 line-clamp-1">{group.name}</h3>
-          <p className="text-xs text-muted-foreground line-clamp-2 mb-3">{group.description}</p>
-          <div className="flex items-center justify-between">
+          {/* line-clamp-2 truncates long descriptions; flex-1 pushes footer down */}
+          <p className="text-xs text-muted-foreground line-clamp-2 mb-3 flex-1">{group.description || <span className="opacity-40 italic">No description</span>}</p>
+          <div className="flex items-center justify-between mt-auto">
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Users className="w-3.5 h-3.5" />{(group.memberCount || 0).toLocaleString()} members
