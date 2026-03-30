@@ -52,6 +52,8 @@ function notifMeta(type: string): { icon: React.ElementType; color: string; bg: 
     case "project_update":    return { icon: Wrench,        color: "text-primary",     bg: "bg-primary/15" };
     // Badges
     case "badge_awarded":     return { icon: Tag,           color: "text-yellow-400",  bg: "bg-yellow-500/15" };
+    // Affiliate / AI
+    case "parts_review_needed": return { icon: Wrench,      color: "text-amber-400",   bg: "bg-amber-500/15" };
     default:                  return { icon: Bell,          color: "text-muted-foreground", bg: "bg-secondary" };
   }
 }
@@ -64,9 +66,10 @@ function linkFor(notif: any): string {
     case "message":  return `/messages`;
     case "profile":  return `/profile/${notif.linkId}`;
     case "project":  return `/projects/${notif.linkId}`;
-    case "event":    return `/events`;
-    case "post":     return notif.linkId ? `/feed` : `/feed`;
-    default:         return `/feed`;
+    case "event":          return `/events`;
+    case "post":            return notif.linkId ? `/feed` : `/feed`;
+    case "admin_affiliate": return `/admin`; // links to admin affiliate tab
+    default:                return `/feed`;
   }
 }
 

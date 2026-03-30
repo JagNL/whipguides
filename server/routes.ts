@@ -9,6 +9,7 @@ import { businessRouter } from "./business";
 import { uploadRouter } from "./upload";
 import { videoRouter } from "./video";
 import { communityRouter } from "./community";
+import { affiliateRouter } from "./affiliate";
 import { sendEmail, listingExpiryWarningEmail, listingExpiredEmail, listingSoldConfirmEmail } from "./email";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -35,6 +36,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============================================================
   app.use("/api/business", businessRouter);
   app.use("/api/community", communityRouter);
+  app.use("/api/affiliate", affiliateRouter);
   app.use("/api/reports", reportRouter);
 
   // ============================================================
@@ -1458,6 +1460,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         coverImageId: coverImageId || null,
         authorId: currentUser.id,
       });
+      // Async AI extraction — non-blocking, fire & forget
+      import("./parts-extractor").then(({ extractGuidePartsManifest }) => {
+        extractGuidePartsManifest(guide).catch(() => {});
+      }).catch(() => {});
       return res.status(201).json(guide);
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
@@ -1474,6 +1480,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return res.status(403).json({ error: "Not authorized" });
     }
     const updated = await storage.updateGuide(id, req.body);
+    // Re-extract if steps changed (fire & forget)
+    if (req.body.steps && updated) {
+      import("./parts-extractor").then(({ extractGuidePartsManifest }) => {
+        extractGuidePartsManifest(updated, { force: true }).catch(() => {});
+      }).catch(() => {});
+    }
     return res.json(updated);
   });
 

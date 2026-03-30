@@ -120,6 +120,19 @@ async function runListingExpiry() {
   }
 }
 
+// ── AI parts extraction batch job ──────────────────────────
+async function runPartsExtractionBatch() {
+  console.log("[cron] Running AI parts extraction batch...");
+  try {
+    const { reprocessGuideExtractions } = await import("./parts-extractor");
+    // Process newest 10 guides that don't have an approved manifest yet
+    const result = await reprocessGuideExtractions({ limit: 10 });
+    console.log(`[cron] Parts extraction: ${result.processed} processed, ${result.errors} errors`);
+  } catch (err: any) {
+    console.error("[cron] Parts extraction batch error:", err.message);
+  }
+}
+
 export function startCronJobs() {
   // Run once at startup if Supabase is configured (catches any missed runs after redeploy)
   const { isSupabaseConfigured } = require("./supabase");
@@ -133,5 +146,11 @@ export function startCronJobs() {
     runListingExpiry();
   }, { timezone: "UTC" });
 
-  console.log("[cron] Listing expiry job scheduled: daily at 11:00 UTC (6:00 AM CDT)");
+  // AI parts extraction — every 4 hours, picks up new guides
+  cron.schedule("0 */4 * * *", () => {
+    runPartsExtractionBatch();
+  }, { timezone: "UTC" });
+
+  console.log("[cron] Listing expiry job: daily at 11:00 UTC");
+  console.log("[cron] AI parts extraction: every 4 hours");
 }

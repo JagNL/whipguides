@@ -20,6 +20,7 @@ import {
 import { useCfUrl } from "@/hooks/use-cf-url";
 import { AnnotatedImage, TorqueSpecsTable, HardwareList } from "@/components/GuideAnnotations";
 import type { Annotation } from "@/components/GuideAnnotations";
+import { PartsIntelligence } from "@/components/PartsIntelligence";
 import type { Guide, GuideComment } from "@/../../server/storage";
 
 function difficultyColor(d: string) {
@@ -537,6 +538,8 @@ export default function GuideDetailPage({ id }: { id: number }) {
         <TorqueSpecsTable steps={guide.steps.map(s => ({ title: s.title, annotations: (s.annotations ?? []) as Annotation[] }))} />
         <HardwareList steps={guide.steps.map(s => ({ annotations: (s.annotations ?? []) as Annotation[] }))} />
       </>)}
+
+      <PartsIntelligence guideId={guide.id} vertical={(guide as any).vertical} />
 
       {/* Like button */}
       <div className="flex items-center gap-4 py-6 border-t border-b border-border mb-10">

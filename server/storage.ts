@@ -253,6 +253,7 @@ export class SupabaseStorage implements IStorage {
       // Admin fields
       siteRole: row.site_role || 'user',
       banned: row.banned || false,
+      adminPermissions: row.admin_permissions || {},
     } as any;
   }
 

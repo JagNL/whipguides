@@ -23,12 +23,15 @@ import {
   Ban, CheckCircle, Star, Trash2, Search,
   ShieldCheck, Activity, ChevronLeft, ChevronRight,
   Eye, AlertTriangle, Megaphone, Filter, CheckCircle2,
-  XCircle, Pause, Play, Plus, Key, Globe, Video, ToggleLeft, ToggleRight, AlertTriangle,
+  XCircle, Pause, Play, Plus, Key, Globe, Video, ToggleLeft, ToggleRight,
+  Link2, KeyRound, DollarSign, Brain, ShieldPlus, ChevronDown, ChevronUp, RefreshCw, ExternalLink, Package, TrendingUp, Zap,
 } from "lucide-react";
+import { AffiliateAdminTab } from "@/components/AffiliateAdminTab";
+import { PermissionsAdminTab } from "@/components/PermissionsAdminTab";
 import { useAppConfig } from "@/hooks/use-cf-url";
 import { timeAgo } from "@/lib/utils";
 
-type AdminTab = "overview" | "users" | "listings" | "reports" | "groups" | "ads" | "moderation" | "keywords" | "audit" | "video";
+type AdminTab = "overview" | "users" | "listings" | "reports" | "groups" | "ads" | "moderation" | "keywords" | "audit" | "video" | "affiliate" | "permissions";
 
 // ─── Stat Card ───────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, color = "text-primary", urgent = false }: any) {
@@ -611,6 +614,8 @@ export default function AdminPage() {
     { id: "keywords", label: "Keywords", icon: Key },
     { id: "audit", label: "Audit Log", icon: Activity, superOnly: true },
     { id: "video", label: "Video", icon: Video, superOnly: true },
+    { id: "affiliate", label: "Affiliate & AI", icon: Link2, superOnly: true },
+    { id: "permissions", label: "Permissions", icon: KeyRound, superOnly: true },
   ];
 
   return (
@@ -658,6 +663,8 @@ export default function AdminPage() {
       {activeTab === "keywords" && <KeywordsTab />}
       {activeTab === "audit" && <AuditTab />}
       {activeTab === "video" && <VideoAdminTab />}
+      {activeTab === "affiliate" && <AffiliateAdminTab />}
+      {activeTab === "permissions" && <PermissionsAdminTab />}
     </div>
   );
 }
