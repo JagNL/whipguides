@@ -10,8 +10,8 @@ import { useLocation } from "wouter";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  Bell, MessageSquare, Heart, BookOpen, Users, Star,
-  Bookmark, CheckCheck, X, UserPlus, Wrench,
+  Bell, MessageSquare, Heart, BookOpen, Users, Star, DollarSign,
+  Bookmark, CheckCheck, X, UserPlus, Wrench, CheckCircle,
   CalendarDays, AlertCircle, Tag, RefreshCw,
   ShieldAlert, ShieldCheck, Zap,
 } from "lucide-react";
@@ -54,6 +54,11 @@ function notifMeta(type: string): { icon: React.ElementType; color: string; bg: 
     case "badge_awarded":     return { icon: Tag,           color: "text-yellow-400",  bg: "bg-yellow-500/15" };
     // Affiliate / AI
     case "parts_review_needed": return { icon: Wrench,      color: "text-amber-400",   bg: "bg-amber-500/15" };
+    // Guides
+    case "new_guide":          return { icon: BookOpen,     color: "text-primary",     bg: "bg-primary/15" };
+    case "guide_helped":       return { icon: CheckCircle,  color: "text-emerald-400", bg: "bg-emerald-500/15" };
+    case "series_update":      return { icon: BookOpen,     color: "text-purple-400",  bg: "bg-purple-500/15" };
+    case "guide_monetized":    return { icon: DollarSign,   color: "text-green-400",   bg: "bg-green-500/15" };
     default:                  return { icon: Bell,          color: "text-muted-foreground", bg: "bg-secondary" };
   }
 }

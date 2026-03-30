@@ -1029,6 +1029,119 @@ function JoinRequestsPanel({ groupId }: { groupId: number }) {
 }
 
 // ─── Group Events Panel ──────────────────────────────────────
+// ─── Group Guides Panel ───────────────────────────────────────
+function GroupGuidesPanel({ groupId, isGroupAdmin, currentUserId }: {
+  groupId: number; isGroupAdmin: boolean; currentUserId?: number;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+
+  const { data: guides, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/groups", groupId, "guides"],
+    queryFn: () => apiRequest("GET", `/api/groups/${groupId}/guides`).then(r => r.json()),
+  });
+
+  const addMutation = useMutation({
+    mutationFn: (guideId: number) =>
+      apiRequest("POST", `/api/groups/${groupId}/guides`, { guideId }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", groupId, "guides"] });
+      toast({ title: "Guide added to group!" });
+      setAddDialogOpen(false);
+    },
+    onError: () => toast({ title: "Error adding guide", variant: "destructive" }),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (guideId: number) =>
+      apiRequest("DELETE", `/api/groups/${groupId}/guides/${guideId}`).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", groupId, "guides"] });
+      toast({ title: "Guide removed from group" });
+    },
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{guides?.length ?? 0} guide{(guides?.length ?? 0) !== 1 ? "s" : ""} in this group</p>
+        {isGroupAdmin && (
+          <Button size="sm" onClick={() => setAddDialogOpen(true)} className="gap-1.5" data-testid="button-add-guide-to-group">
+            <Plus className="w-3.5 h-3.5" /> Add Guide
+          </Button>
+        )}
+      </div>
+
+      {/* Guide list */}
+      {isLoading ? (
+        <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}</div>
+      ) : !guides || guides.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground bg-card rounded-xl border border-border">
+          <BookOpen className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p className="font-semibold">No guides yet</p>
+          <p className="text-sm mt-1">Add a guide to share knowledge with the group.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {guides.map((guide: any) => (
+            <div key={guide.id} className="bg-card border border-border rounded-xl p-4 flex items-start gap-3" data-testid={`group-guide-${guide.id}`}>
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <BookOpen className="w-5 h-5 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <Link href={`/guides/${guide.id}`}>
+                  <p className="font-semibold text-sm hover:text-primary transition-colors line-clamp-1">{guide.title}</p>
+                </Link>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  {guide.vertical && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">{guide.vertical}</span>
+                  )}
+                  {guide.qualityScore > 0 && (
+                    <span className="text-[10px] font-semibold text-primary">Score: {guide.qualityScore}</span>
+                  )}
+                  <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground"><Eye className="w-2.5 h-2.5" />{guide.views}</span>
+                </div>
+                {guide.author && (
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <Avatar className="w-4 h-4">
+                      <AvatarImage src={guide.author.avatar ?? undefined} />
+                      <AvatarFallback className="text-[8px]">{guide.author.displayName?.[0]}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-[10px] text-muted-foreground">{guide.author.displayName ?? guide.author.username}</span>
+                  </div>
+                )}
+              </div>
+              {isGroupAdmin && (
+                <Button size="sm" variant="ghost" onClick={() => removeMutation.mutate(guide.id)}
+                  disabled={removeMutation.isPending}
+                  data-testid={`button-remove-group-guide-${guide.id}`}
+                  className="shrink-0 text-destructive hover:text-destructive h-7 w-7 p-0">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add guide dialog */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><BookOpen className="w-4 h-4 text-primary" /> Add Guide to Group</DialogTitle>
+            <DialogDescription>Search for a guide to share with this group.</DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <GuideSearch onSelect={(guide) => addMutation.mutate(guide.id)} />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 function GroupEventsPanel({ groupId, isGroupAdmin, groupVertical }: { groupId: number; isGroupAdmin: boolean; groupVertical?: string }) {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -1190,7 +1303,7 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const isGroupAdmin = isOwner || myRole === "admin" || isSiteAdmin;
 
   // Settings sheet + delete dialog state
-  const [mainTab, setMainTab] = useState<"posts" | "events">("posts");
+  const [mainTab, setMainTab] = useState<"posts" | "events" | "guides">("posts");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
@@ -1440,12 +1553,13 @@ export default function GroupDetailPage({ id }: { id: number }) {
           {/* Tab bar: Posts | Events */}
           {canSeePosts && (
             <div className="flex items-center gap-1 mb-4 border-b border-border">
-              {(["posts", "events"] as const).map(t => (
+              {(["posts", "events", "guides"] as const).map(t => (
                 <button key={t} onClick={() => setMainTab(t)}
                   data-testid={`group-tab-${t}`}
                   className={`px-4 py-2.5 text-sm font-semibold capitalize transition-colors border-b-2 -mb-px ${mainTab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
                   {t === "posts" ? <span className="flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5" />Posts</span>
-                    : <span className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Events</span>}
+                    : t === "events" ? <span className="flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Events</span>
+                    : <span className="flex items-center gap-1.5"><BookOpen className="w-3.5 h-3.5" />Guides</span>}
                 </button>
               ))}
             </div>
@@ -1479,6 +1593,11 @@ export default function GroupDetailPage({ id }: { id: number }) {
           {/* Events tab */}
           {canSeePosts && mainTab === "events" && (
             <GroupEventsPanel groupId={id} isGroupAdmin={!!isGroupAdmin} groupVertical={group?.category} />
+          )}
+
+          {/* Guides tab */}
+          {canSeePosts && mainTab === "guides" && (
+            <GroupGuidesPanel groupId={id} isGroupAdmin={!!isGroupAdmin} currentUserId={user?.id} />
           )}
         </div>
 

@@ -31,7 +31,7 @@ import ReportButton from "@/components/ReportButton";
 import { timeAgo } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────
-type Tab = "listings" | "reviews" | "posts" | "garage" | "projects" | "badges";
+type Tab = "listings" | "reviews" | "posts" | "garage" | "projects" | "badges" | "guides";
 
 // ── Badge definitions ─────────────────────────────────────────
 const BADGE_DEFS: Record<string, { label: string; icon: string; desc: string; color: string }> = {
@@ -460,6 +460,12 @@ export default function ProfilePage({ id }: { id: number }) {
     enabled: activeTab === "badges",
   });
 
+  const { data: userGuides, isLoading: guidesLoading } = useQuery<any[]>({
+    queryKey: ["/api/guides", { authorId: id, sortBy: "quality" }],
+    queryFn: () => apiRequest("GET", `/api/guides?authorId=${id}&sortBy=quality`).then(r => r.json()),
+    enabled: activeTab === "guides",
+  });
+
   const { mutate: messageUser, isPending: messagingUser } = useMutation({
     mutationFn: () => apiRequest("POST", "/api/conversations", { otherUserId: id }).then(r => r.json()),
     onSuccess: () => { qc0.invalidateQueries({ queryKey: ["/api/conversations"] }); navigate("/messages"); },
@@ -557,7 +563,7 @@ export default function ProfilePage({ id }: { id: number }) {
     pct: reviews.length ? (reviews.filter((r: any) => r.rating === star).length / reviews.length) * 100 : 0,
   }));
 
-  const ALL_TABS: Tab[] = ["listings", ...(showPostsTab ? ["posts" as Tab] : []), "garage", "projects", "badges", "reviews"];
+  const ALL_TABS: Tab[] = ["listings", "guides", ...(showPostsTab ? ["posts" as Tab] : []), "garage", "projects", "badges", "reviews"];
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
@@ -919,6 +925,63 @@ export default function ProfilePage({ id }: { id: number }) {
                   </div>
                 </div>
               </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* ── Guides Tab ─────────────────────────────────────── */}
+      {activeTab === "guides" && (
+        <div className="space-y-3">
+          {guidesLoading ? (
+            <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}</div>
+          ) : !userGuides || userGuides.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <BookOpen className="w-10 h-10 mx-auto mb-3 opacity-20" />
+              <p className="font-semibold">No guides yet</p>
+              {isOwnProfile && (
+                <div className="mt-4">
+                  <Button asChild size="sm" className="gap-1.5">
+                    <a href="/guides/new"><Plus className="w-4 h-4" /> Write your first guide</a>
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            userGuides.map((guide: any) => (
+              <a key={guide.id} href={`/guides/${guide.id}`} className="block">
+                <div className="bg-card border border-border rounded-xl p-4 hover:border-primary/40 transition-colors" data-testid={`profile-guide-${guide.id}`}>
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <BookOpen className="w-5 h-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm line-clamp-1 hover:text-primary transition-colors">{guide.title}</p>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        {guide.vertical && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground capitalize">{guide.vertical}</span>
+                        )}
+                        {(guide.qualityScore ?? 0) > 0 && (
+                          <span className="text-[10px] font-semibold text-primary">Score: {guide.qualityScore}</span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                          <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                          {guide.views ?? 0}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                          <svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                          {guide.likes ?? 0}
+                        </span>
+                      </div>
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border capitalize shrink-0 ${
+                      guide.difficulty === "beginner" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" :
+                      guide.difficulty === "intermediate" ? "bg-amber-500/15 text-amber-400 border-amber-500/20" :
+                      "bg-red-500/15 text-red-400 border-red-500/20"
+                    }`}>{guide.difficulty}</span>
+                  </div>
+                </div>
+              </a>
             ))
           )}
         </div>

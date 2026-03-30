@@ -10,6 +10,7 @@ import { uploadRouter } from "./upload";
 import { videoRouter } from "./video";
 import { communityRouter } from "./community";
 import { affiliateRouter } from "./affiliate";
+import { guideSeriesRouter } from "./guide-series";
 import { sendEmail, listingExpiryWarningEmail, listingExpiredEmail, listingSoldConfirmEmail } from "./email";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -37,6 +38,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.use("/api/business", businessRouter);
   app.use("/api/community", communityRouter);
   app.use("/api/affiliate", affiliateRouter);
+  app.use("/api/guide-series", guideSeriesRouter);
   app.use("/api/reports", reportRouter);
 
   // ============================================================
@@ -1415,12 +1417,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // GET /api/guides — list guides with optional filters
   app.get("/api/guides", async (req, res) => {
-    const { category, difficulty, search, authorId } = req.query;
+    const { category, difficulty, search, authorId, vertical, seriesId, businessPageId, groupId, sortBy } = req.query;
     const guides = await storage.listGuides({
       category: category as string | undefined,
       difficulty: difficulty as string | undefined,
       search: search as string | undefined,
       authorId: authorId ? Number(authorId) : undefined,
+      vertical: vertical as string | undefined,
+      seriesId: seriesId ? Number(seriesId) : undefined,
+      businessPageId: businessPageId ? Number(businessPageId) : undefined,
+      groupId: groupId ? Number(groupId) : undefined,
+      sortBy: (sortBy as any) || "quality",
     });
     res.json(guides);
   });
@@ -1436,35 +1443,82 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return res.json(guide);
   });
 
-  // POST /api/guides — create a new guide
+  // POST /api/guides — create a new guide (vertical-aware)
   app.post("/api/guides", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
     const {
-      title, description,
-      vehicleMake, vehicleModel, vehicleYearStart, vehicleYearEnd,
-      difficulty, timeEstimate, category, tags, tools, parts, steps, coverImageId,
+      title, description, difficulty, timeEstimate, category, tags, tools,
+      parts, steps, coverImageId,
+      vertical = "automotive",
+      subjectData = {},
+      vehicleMake, vehicleModel, vehicleYearStart, vehicleYearEnd, // legacy compat
+      headerEmbedUrl, seriesId, seriesPosition,
+      businessPageId, groupId,
     } = req.body;
-    if (!title || !description || !vehicleMake || !vehicleModel || !vehicleYearStart || !vehicleYearEnd || !difficulty || !timeEstimate) {
-      return res.status(400).json({ error: "Missing required fields" });
+
+    if (!title?.trim() || !description?.trim() || !difficulty || !timeEstimate) {
+      return res.status(400).json({ error: "title, description, difficulty, and timeEstimate are required" });
     }
+
+    // Merge legacy automotive fields into subjectData
+    const merged = { ...subjectData };
+    if (vehicleMake) merged.make = vehicleMake;
+    if (vehicleModel) merged.model = vehicleModel;
+    if (vehicleYearStart) merged.year_start = vehicleYearStart;
+    if (vehicleYearEnd) merged.year_end = vehicleYearEnd;
+
+    // Validate + resolve embed URL
+    let embedType = null, resolvedEmbed = null;
+    if (headerEmbedUrl) {
+      const { extractEmbedUrl } = await import("./guide-scoring");
+      const e = extractEmbedUrl(headerEmbedUrl);
+      if (e.type) { embedType = e.type; resolvedEmbed = headerEmbedUrl; }
+    }
+
+    // Validate business page ownership
+    if (businessPageId) {
+      const { data: biz } = await supabaseAdminForRoutes.from("business_pages").select("owner_id").eq("id", businessPageId).single();
+      if (!biz || biz.owner_id !== currentUser.id) return res.status(403).json({ error: "Not your business page" });
+    }
+
     try {
       const guide = await storage.createGuide({
-        title, description,
-        vehicleMake, vehicleModel, vehicleYearStart, vehicleYearEnd,
+        title: title.trim(), description: description.trim(),
+        vehicleMake: merged.make || "N/A",
+        vehicleModel: merged.model || "N/A",
+        vehicleYearStart: merged.year_start || "N/A",
+        vehicleYearEnd: merged.year_end || "N/A",
         difficulty, timeEstimate,
         category: category || null,
-        tags: tags || [],
-        tools: tools || [],
-        parts: parts || [],
-        steps: steps || [],
+        tags: Array.isArray(tags) ? tags : [],
+        tools: Array.isArray(tools) ? tools : [],
+        parts: Array.isArray(parts) ? parts : [],
+        steps: Array.isArray(steps) ? steps : [],
         coverImageId: coverImageId || null,
         authorId: currentUser.id,
       });
-      // Async AI extraction — non-blocking, fire & forget
-      import("./parts-extractor").then(({ extractGuidePartsManifest }) => {
-        extractGuidePartsManifest(guide).catch(() => {});
-      }).catch(() => {});
-      return res.status(201).json(guide);
+
+      // Write V2 fields
+      await supabaseAdminForRoutes.from("guides").update({
+        vertical, subject_data: merged,
+        header_embed_url: resolvedEmbed, header_embed_type: embedType,
+        series_id: seriesId || null, series_position: seriesPosition || null,
+        business_page_id: businessPageId || null, group_id: groupId || null,
+      }).eq("id", guide.id);
+
+      // Async: AI extraction + badges + follower notifications
+      Promise.all([
+        import("./parts-extractor").then(({ extractGuidePartsManifest }) => extractGuidePartsManifest(guide)).catch(() => {}),
+        import("./community").then(({ awardBadge }) => awardBadge(currentUser.id, "guide_author")).catch(() => {}),
+        notifyFollowersNewGuide(currentUser.id, guide.id, title.trim()).catch(() => {}),
+        // If added to series, update series guide_count
+        seriesId ? supabaseAdminForRoutes.from("guide_series").select("guide_count").eq("id", seriesId).single()
+          .then(({ data: s }) => {
+            if (s) supabaseAdminForRoutes.from("guide_series").update({ guide_count: (s.guide_count || 0) + 1 }).eq("id", seriesId).then(() => {});
+          }) : Promise.resolve(),
+      ]).catch(() => {});
+
+      return res.status(201).json({ ...guide, vertical, subjectData: merged });
     } catch (err: any) {
       return res.status(500).json({ error: err.message });
     }
@@ -1559,9 +1613,172 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete("/api/guide-comments/:id", requireAuth, async (req, res) => {
     const id = Number(req.params.id);
     const currentUser = (req as any).currentUser;
-    // Only admin can delete others' comments (simplified — author check would need a lookup)
     await storage.deleteGuideComment(id);
     return res.json({ ok: true });
+  });
+
+  // POST /api/guides/:id/helped — "this guide helped me" (guide-level, distinct from post helped)
+  app.post("/api/guides/:id/helped", requireAuth, async (req, res) => {
+    const guideId = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    const guide = await storage.getGuide(guideId);
+    if (!guide) return res.status(404).json({ error: "Not found" });
+
+    const { data: existing } = await supabaseAdminForRoutes
+      .from("guide_helped").select("guide_id").eq("guide_id", guideId).eq("user_id", currentUser.id).single();
+
+    if (existing) {
+      await supabaseAdminForRoutes.from("guide_helped").delete().eq("guide_id", guideId).eq("user_id", currentUser.id);
+      return res.json({ helped: false });
+    }
+
+    await supabaseAdminForRoutes.from("guide_helped").insert({ guide_id: guideId, user_id: currentUser.id });
+
+    // Record quality signal (fire & forget)
+    import("./guide-scoring").then(({ recordSignal }) => {
+      const createdAt = (currentUser as any).createdAt || (currentUser as any).memberSince || null;
+      recordSignal({
+        guideId, guideAuthorId: guide.authorId, userId: currentUser.id,
+        userCreatedAt: createdAt, signalType: "helped",
+        ip: req.ip || "",
+      });
+    }).catch(() => {});
+
+    // Notify author
+    if (guide.authorId !== currentUser.id) {
+      (storage as any).createNotification({
+        userId: guide.authorId, type: "guide_helped",
+        title: `${currentUser.displayName} said your guide helped them`,
+        body: guide.title, linkType: "guide", linkId: guideId, actorId: currentUser.id,
+      }).catch(() => {});
+    }
+    return res.json({ helped: true });
+  });
+
+  // GET /api/guides/:id/helped — did current user mark as helped?
+  app.get("/api/guides/:id/helped", requireAuth, async (req, res) => {
+    const { data } = await supabaseAdminForRoutes.from("guide_helped")
+      .select("guide_id").eq("guide_id", Number(req.params.id)).eq("user_id", (req as any).currentUser.id).single();
+    res.json({ helped: !!data });
+  });
+
+  // POST /api/guides/:id/signal — record a behavioral signal (step_complete, share, save, return_visit)
+  app.post("/api/guides/:id/signal", requireAuth, async (req, res) => {
+    const guideId = Number(req.params.id);
+    const currentUser = (req as any).currentUser;
+    const { signalType } = req.body;
+    const validTypes = ["step_complete", "share", "save", "return_visit", "comment_quality"];
+    if (!validTypes.includes(signalType)) return res.status(400).json({ error: "Invalid signal type" });
+
+    const guide = await storage.getGuide(guideId);
+    if (!guide) return res.status(404).json({ error: "Not found" });
+
+    const { recordSignal } = await import("./guide-scoring");
+    const result = await recordSignal({
+      guideId, guideAuthorId: guide.authorId, userId: currentUser.id,
+      userCreatedAt: (currentUser as any).createdAt || null,
+      signalType, ip: req.ip || "",
+    });
+    res.json(result);
+  });
+
+  // ── Group Guide Library ──────────────────────────────────────
+  // GET /api/groups/:id/guides
+  app.get("/api/groups/:id/guides", async (req, res) => {
+    const { data } = await supabaseAdminForRoutes
+      .from("group_guides")
+      .select(`
+        position, is_pinned, added_at,
+        guide:guides(id, title, description, difficulty, time_estimate, cover_image_id,
+          quality_score, community_verified, views, likes, vertical, subject_data,
+          author:author_id(id, username, display_name, avatar))
+      `)
+      .eq("group_id", Number(req.params.id))
+      .order("is_pinned", { ascending: false })
+      .order("position", { ascending: true });
+    res.json(data ?? []);
+  });
+
+  // POST /api/groups/:id/guides — add guide to group library
+  app.post("/api/groups/:id/guides", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const { guideId } = req.body;
+    if (!guideId) return res.status(400).json({ error: "guideId required" });
+
+    // Must be group admin/owner or guide author
+    const { data: membership } = await supabaseAdminForRoutes
+      .from("group_members").select("role").eq("group_id", groupId).eq("user_id", currentUser.id).single();
+    const guide = await storage.getGuide(guideId);
+    const isAdmin = membership?.role === "owner" || membership?.role === "admin";
+    const isAuthor = guide?.authorId === currentUser.id;
+    if (!isAdmin && !isAuthor) return res.status(403).json({ error: "Must be group admin or guide author" });
+
+    const { count } = await supabaseAdminForRoutes.from("group_guides")
+      .select("*", { count: "exact", head: true }).eq("group_id", groupId);
+
+    const { error } = await supabaseAdminForRoutes.from("group_guides").insert({
+      group_id: groupId, guide_id: guideId,
+      added_by: currentUser.id, position: (count ?? 0) + 1,
+    });
+    if (error && error.code !== "23505") return res.status(400).json({ error: error.message });
+
+    // Record marketplace_link signal if guide added by author
+    if (isAuthor && guide) {
+      import("./guide-scoring").then(({ recordSignal }) =>
+        recordSignal({ guideId, guideAuthorId: guide.authorId, userId: currentUser.id,
+          userCreatedAt: null, signalType: "marketplace_link", ip: req.ip || "" })
+      ).catch(() => {});
+    }
+    res.json({ success: true });
+  });
+
+  // DELETE /api/groups/:id/guides/:guideId
+  app.delete("/api/groups/:id/guides/:guideId", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const groupId = Number(req.params.id);
+    const { data: m } = await supabaseAdminForRoutes.from("group_members").select("role").eq("group_id", groupId).eq("user_id", currentUser.id).single();
+    if (!m || !(["owner", "admin"].includes(m.role))) return res.status(403).json({ error: "Admin only" });
+    await supabaseAdminForRoutes.from("group_guides").delete().eq("group_id", groupId).eq("guide_id", Number(req.params.guideId));
+    res.json({ success: true });
+  });
+
+  // ── Revenue Share Settings ────────────────────────────────────
+  // GET /api/guides/revenue-settings — platform revenue share config
+  app.get("/api/guides/revenue-settings", async (_req, res) => {
+    const { data } = await supabaseAdminForRoutes.from("platform_settings").select("value").eq("key", "revenue_share").single();
+    res.json(data?.value || {});
+  });
+
+  // GET /api/guides/:id/revenue — guide revenue stats (author only)
+  app.get("/api/guides/:id/revenue", requireAuth, async (req, res) => {
+    const guide = await storage.getGuide(Number(req.params.id));
+    if (!guide) return res.status(404).json({ error: "Not found" });
+    if (guide.authorId !== (req as any).currentUser.id) return res.status(403).json({ error: "Not your guide" });
+    const { data } = await supabaseAdminForRoutes.from("guide_revenue").select("*").eq("guide_id", guide.id).order("month", { ascending: false }).limit(12);
+    res.json(data ?? []);
+  });
+
+  // ── Listing → Guide linkage ───────────────────────────────────
+  // PATCH /api/listings/:id/related-guide
+  app.patch("/api/listings/:id/related-guide", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const listing = await storage.getListing(Number(req.params.id));
+    if (!listing) return res.status(404).json({ error: "Not found" });
+    if (listing.sellerId !== currentUser.id) return res.status(403).json({ error: "Not your listing" });
+    const { guideId } = req.body;
+    await supabaseAdminForRoutes.from("listings").update({ related_guide_id: guideId || null }).eq("id", listing.id);
+    // Signal: marketplace linkage boosts guide score
+    if (guideId) {
+      const guide = await storage.getGuide(guideId);
+      if (guide) {
+        import("./guide-scoring").then(({ recordSignal }) =>
+          recordSignal({ guideId, guideAuthorId: guide.authorId, userId: currentUser.id,
+            userCreatedAt: null, signalType: "marketplace_link", ip: req.ip || "" })
+        ).catch(() => {});
+      }
+    }
+    res.json({ success: true });
   });
 
   // ============================================================
@@ -2105,4 +2322,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   return httpServer;
+}
+
+// ─── Internal helper: notify followers when author publishes guide ───
+async function notifyFollowersNewGuide(authorId: number, guideId: number, title: string) {
+  const { supabaseAdmin: sb } = await import("./supabase");
+  if (!sb) return;
+  const { data: followers } = await sb.from("user_follows").select("follower_id").eq("following_id", authorId);
+  if (!followers?.length) return;
+  const { data: author } = await sb.from("users").select("display_name").eq("id", authorId).single();
+  const name = (author as any)?.display_name || "Someone";
+  const notes = followers.map((f: any) => ({
+    user_id: f.follower_id, type: "new_guide",
+    title: `${name} published a new guide`,
+    body: title, link_type: "guide", link_id: guideId, actor_id: authorId,
+  }));
+  await sb.from("notifications").insert(notes).catch(() => {});
 }

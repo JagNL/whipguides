@@ -4,32 +4,18 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Search, Plus, Heart, Eye, Clock, Wrench, BookOpen, ChevronRight,
-  Car, Bike, Waves, Truck, Zap, Target,
+  Car, Waves, Target, Music2, Cpu, Trophy, CheckCircle2, BarChart2,
+  Star, Users,
 } from "lucide-react";
 import { useCfUrl } from "@/hooks/use-cf-url";
 import type { Guide } from "@/../../server/storage";
-
-const CATEGORIES = [
-  { value: "Engine", icon: Zap },
-  { value: "Transmission", icon: ChevronRight },
-  { value: "Brakes", icon: Target },
-  { value: "Suspension", icon: Car },
-  { value: "Electrical", icon: Zap },
-  { value: "Interior", icon: Car },
-  { value: "Exterior", icon: Car },
-  { value: "Maintenance", icon: Wrench },
-  { value: "Performance", icon: Bike },
-  { value: "Diagnostics", icon: BookOpen },
-  { value: "Jet Ski", icon: Waves },
-  { value: "ATV / UTV", icon: Truck },
-];
+import { GUIDE_VERTICALS } from "@/lib/guide-verticals";
 
 const DIFFICULTIES = [
   { value: "beginner", label: "Beginner", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
@@ -37,19 +23,44 @@ const DIFFICULTIES = [
   { value: "advanced", label: "Advanced", color: "bg-red-500/15 text-red-400 border-red-500/20" },
 ];
 
+const VERTICAL_ICONS: Record<string, React.ElementType> = {
+  Car, Waves, Target, Music2, Cpu, Trophy, Wrench,
+};
+
 function difficultyBadge(d: string) {
-  const found = DIFFICULTIES.find(x => x.value === d);
-  return found?.color ?? "bg-muted text-muted-foreground";
+  return DIFFICULTIES.find(x => x.value === d)?.color ?? "bg-muted text-muted-foreground";
 }
 
-function vehicleString(g: Guide) {
-  const year = g.vehicleYearStart === g.vehicleYearEnd
-    ? g.vehicleYearStart
-    : `${g.vehicleYearStart}–${g.vehicleYearEnd}`;
-  return `${year} ${g.vehicleMake} ${g.vehicleModel}`;
+function VerticalBadge({ vertical }: { vertical?: string }) {
+  if (!vertical) return null;
+  const v = GUIDE_VERTICALS.find(x => x.key === vertical);
+  if (!v) return null;
+  const Icon = VERTICAL_ICONS[v.icon] ?? Wrench;
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+      <Icon className="w-2.5 h-2.5" /> {v.label}
+    </span>
+  );
 }
 
-function GuideCard({ guide }: { guide: Guide }) {
+function QualityBadge({ score, verified }: { score?: number; verified?: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {verified && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+          <CheckCircle2 className="w-2.5 h-2.5" /> Verified
+        </span>
+      )}
+      {score !== undefined && score > 70 && (
+        <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+          <BarChart2 className="w-2.5 h-2.5" /> {score}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function GuideCard({ guide }: { guide: any }) {
   const cfUrl = useCfUrl();
   const coverSrc = guide.coverImageId && cfUrl ? `${cfUrl}/${guide.coverImageId}/public` : null;
 
@@ -59,26 +70,19 @@ function GuideCard({ guide }: { guide: Guide }) {
         data-testid={`card-guide-${guide.id}`}
         className="group bg-card border border-border rounded-xl overflow-hidden hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 transition-all cursor-pointer"
       >
-        {/* Cover image */}
         <div className="relative h-44 bg-secondary overflow-hidden">
           {coverSrc ? (
-            <img
-              src={coverSrc}
-              alt={guide.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            />
+            <img src={coverSrc} alt={guide.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <BookOpen className="w-12 h-12 text-muted-foreground/30" />
             </div>
           )}
-          {/* Difficulty badge */}
           <div className="absolute top-3 left-3">
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${difficultyBadge(guide.difficulty)}`}>
               {guide.difficulty}
             </span>
           </div>
-          {/* Category badge */}
           {guide.category && (
             <div className="absolute top-3 right-3">
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-background/80 text-foreground border border-border backdrop-blur-sm">
@@ -87,44 +91,24 @@ function GuideCard({ guide }: { guide: Guide }) {
             </div>
           )}
         </div>
-
-        {/* Card body */}
         <div className="p-4">
-          <h3 className="font-semibold text-sm leading-snug line-clamp-2 mb-1 group-hover:text-primary transition-colors">
-            {guide.title}
-          </h3>
-          <p className="text-xs text-muted-foreground mb-3 line-clamp-2">
-            {guide.description}
-          </p>
-
-          {/* Vehicle */}
-          <p className="text-xs text-primary/80 font-medium mb-3 truncate">
-            {vehicleString(guide)}
-          </p>
-
-          {/* Stats row */}
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <h3 className="font-semibold text-sm leading-snug line-clamp-2 group-hover:text-primary transition-colors flex-1">
+              {guide.title}
+            </h3>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5 mb-2">
+            <VerticalBadge vertical={guide.vertical} />
+            <QualityBadge score={(guide as any).qualityScore} verified={(guide as any).communityVerified} />
+          </div>
+          <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{guide.description}</p>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                {guide.timeEstimate}h
-              </span>
-              <span className="flex items-center gap-1">
-                <Wrench className="w-3 h-3" />
-                {guide.tools?.length ?? 0} tools
-              </span>
-              <span className="flex items-center gap-1">
-                <Eye className="w-3 h-3" />
-                {guide.views}
-              </span>
-              <span className="flex items-center gap-1">
-                <Heart className="w-3 h-3" />
-                {guide.likes}
-              </span>
+              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{guide.timeEstimate}h</span>
+              <span className="flex items-center gap-1"><Eye className="w-3 h-3" />{guide.views}</span>
+              <span className="flex items-center gap-1"><Heart className="w-3 h-3" />{guide.likes}</span>
             </div>
           </div>
-
-          {/* Author */}
           {guide.author && (
             <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
               <Avatar className="w-5 h-5">
@@ -133,9 +117,7 @@ function GuideCard({ guide }: { guide: Guide }) {
                   {guide.author.displayName?.[0]?.toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-xs text-muted-foreground truncate">
-                {guide.author.displayName ?? guide.author.username}
-              </span>
+              <span className="text-xs text-muted-foreground truncate">{guide.author.displayName ?? guide.author.username}</span>
             </div>
           )}
         </div>
@@ -158,147 +140,178 @@ function GuideCardSkeleton() {
   );
 }
 
+function SeriesCard({ series }: { series: any }) {
+  const cfUrl = useCfUrl();
+  const cover = series.coverImageId && cfUrl ? `${cfUrl}/${series.coverImageId}/public` : null;
+  return (
+    <Link href={`/guide-series/${series.id}`}>
+      <div className="group bg-card border border-border rounded-xl overflow-hidden hover:border-primary/40 transition-all cursor-pointer flex gap-4 p-4">
+        <div className="w-16 h-16 rounded-lg overflow-hidden bg-secondary shrink-0">
+          {cover ? <img src={cover} alt={series.title} className="w-full h-full object-cover" /> : <BookOpen className="w-6 h-6 text-muted-foreground/30 m-auto mt-4" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h4 className="font-semibold text-sm group-hover:text-primary transition-colors line-clamp-1">{series.title}</h4>
+          <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1"><BookOpen className="w-3 h-3" /> {series.guideCount ?? 0} guides</span>
+            {series.author && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{series.author.displayName ?? series.author.username}</span>}
+          </div>
+          <Button size="sm" variant="outline" className="mt-2 h-6 text-xs px-2">View Series</Button>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 export default function GuidesPage() {
   const [, navigate] = useLocation();
   const { isAuthenticated } = useAuth();
   const [search, setSearch] = useState("");
   const [activeSearch, setActiveSearch] = useState("");
+  const [vertical, setVertical] = useState<string>("");
   const [category, setCategory] = useState<string>("");
   const [difficulty, setDifficulty] = useState<string>("");
+  const [sortBy, setSortBy] = useState<string>("quality");
 
-  const { data: guides, isLoading } = useQuery<Guide[]>({
-    queryKey: ["/api/guides", { category, difficulty, search: activeSearch }],
+  const activeVertical = GUIDE_VERTICALS.find(v => v.key === vertical);
+  const categoryOptions = activeVertical?.categories ?? [];
+
+  const { data: guides, isLoading } = useQuery<any[]>({
+    queryKey: ["/api/guides", { vertical, category, difficulty, search: activeSearch, sortBy }],
     queryFn: () => {
       const params = new URLSearchParams();
+      if (vertical) params.set("vertical", vertical);
       if (category && category !== "all") params.set("category", category);
       if (difficulty && difficulty !== "all") params.set("difficulty", difficulty);
       if (activeSearch) params.set("search", activeSearch);
+      if (sortBy) params.set("sortBy", sortBy);
       return apiRequest("GET", `/api/guides?${params.toString()}`).then(r => r.json());
     },
   });
 
-  const handleSearch = () => setActiveSearch(search);
+  const { data: seriesList } = useQuery<any[]>({
+    queryKey: ["/api/guide-series", { vertical }],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (vertical) params.set("vertical", vertical);
+      return apiRequest("GET", `/api/guide-series?${params.toString()}`).then(r => r.json());
+    },
+  });
 
-  const handleCreateGuide = () => {
-    if (!isAuthenticated) {
-      // Let Layout handle the auth modal via the nav guard
-      navigate("/guides/new");
-    } else {
-      navigate("/guides/new");
-    }
-  };
+  const handleSearch = () => setActiveSearch(search);
+  const hasFilters = activeSearch || vertical || (category && category !== "all") || (difficulty && difficulty !== "all");
 
   const resetFilters = () => {
-    setSearch("");
-    setActiveSearch("");
-    setCategory("all");
-    setDifficulty("all");
+    setSearch(""); setActiveSearch(""); setVertical(""); setCategory(""); setDifficulty("");
   };
-
-  const hasFilters = activeSearch || (category && category !== "all") || (difficulty && difficulty !== "all");
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
         <div>
           <h1 className="text-display text-2xl font-extrabold tracking-tight">
             Guides <span className="text-primary">&amp; How-Tos</span>
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            Community-written repair guides, mods, and maintenance walkthroughs
-          </p>
+          <p className="text-muted-foreground text-sm mt-1">Community-written repair guides, mods, and maintenance walkthroughs</p>
         </div>
-        <Button
-          onClick={handleCreateGuide}
-          className="gap-2 font-semibold shrink-0"
-          data-testid="button-create-guide"
-        >
-          <Plus className="w-4 h-4" />
-          Write a Guide
+        <Button onClick={() => navigate("/guides/new")} className="gap-2 font-semibold shrink-0" data-testid="button-create-guide">
+          <Plus className="w-4 h-4" /> Write a Guide
         </Button>
       </div>
 
-      {/* Filters */}
+      {/* Vertical filter row */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={() => { setVertical(""); setCategory(""); }}
+          data-testid="chip-vertical-all"
+          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-semibold transition-colors ${
+            !vertical ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-muted-foreground border-border hover:border-primary/40"
+          }`}
+        >
+          All
+        </button>
+        {GUIDE_VERTICALS.map(v => {
+          const Icon = VERTICAL_ICONS[v.icon] ?? Wrench;
+          return (
+            <button
+              key={v.key}
+              onClick={() => { setVertical(vk => vk === v.key ? "" : v.key); setCategory(""); }}
+              data-testid={`chip-vertical-${v.key}`}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border font-semibold transition-colors ${
+                vertical === v.key ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-muted-foreground border-border hover:border-primary/40"
+              }`}
+            >
+              <Icon className="w-3 h-3" /> {v.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Filters card */}
       <div className="bg-card border border-border rounded-xl p-4 mb-8 space-y-3">
         <div className="flex flex-col sm:flex-row gap-3">
-          {/* Search */}
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               data-testid="input-guide-search"
-              placeholder="Search guides (e.g. 'oil change', 'suspension')"
+              placeholder="Search guides..."
               className="pl-9 bg-secondary"
               value={search}
               onChange={e => setSearch(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleSearch()}
             />
           </div>
-
-          {/* Difficulty */}
           <Select value={difficulty} onValueChange={setDifficulty}>
             <SelectTrigger className="w-full sm:w-44 bg-secondary" data-testid="select-difficulty">
               <SelectValue placeholder="Any difficulty" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Any difficulty</SelectItem>
-              {DIFFICULTIES.map(d => (
-                <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-              ))}
+              {DIFFICULTIES.map(d => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}
             </SelectContent>
           </Select>
-
-          {/* Category */}
-          <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger className="w-full sm:w-44 bg-secondary" data-testid="select-category">
-              <SelectValue placeholder="Any category" />
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-full sm:w-40 bg-secondary" data-testid="select-sortby">
+              <SelectValue placeholder="Sort by" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Any category</SelectItem>
-              {CATEGORIES.map(c => (
-                <SelectItem key={c.value} value={c.value}>{c.value}</SelectItem>
-              ))}
+              <SelectItem value="quality">Best</SelectItem>
+              <SelectItem value="newest">Newest</SelectItem>
+              <SelectItem value="views">Most Viewed</SelectItem>
             </SelectContent>
           </Select>
-
           <div className="flex gap-2">
             <Button onClick={handleSearch} className="gap-1.5 shrink-0" data-testid="button-search-guides">
-              <Search className="w-4 h-4" />
-              Search
+              <Search className="w-4 h-4" /> Search
             </Button>
             {hasFilters && (
-              <Button variant="ghost" onClick={resetFilters} className="shrink-0 text-muted-foreground">
-                Reset
-              </Button>
+              <Button variant="ghost" onClick={resetFilters} className="shrink-0 text-muted-foreground">Reset</Button>
             )}
           </div>
         </div>
 
-        {/* Category chips */}
-        <div className="flex flex-wrap gap-2">
-          {CATEGORIES.map(c => (
-            <button
-              key={c.value}
-              onClick={() => setCategory(cat => cat === c.value ? "" : c.value)}
-              className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                category === c.value
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-              }`}
-              data-testid={`chip-category-${c.value}`}
-            >
-              {c.value}
-            </button>
-          ))}
-        </div>
+        {/* Category chips — dynamic based on vertical */}
+        {categoryOptions.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {categoryOptions.map(c => (
+              <button
+                key={c}
+                onClick={() => setCategory(cat => cat === c ? "" : c)}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  category === c ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+                }`}
+                data-testid={`chip-category-${c}`}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Results count */}
       {!isLoading && guides && (
         <p className="text-sm text-muted-foreground mb-4">
-          {guides.length === 0
-            ? "No guides found"
-            : `${guides.length} guide${guides.length !== 1 ? "s" : ""}`}
+          {guides.length === 0 ? "No guides found" : `${guides.length} guide${guides.length !== 1 ? "s" : ""}`}
           {hasFilters && " matching your filters"}
         </p>
       )}
@@ -317,16 +330,31 @@ export default function GuidesPage() {
           </p>
           {isAuthenticated && (
             <Button onClick={() => navigate("/guides/new")} className="gap-2">
-              <Plus className="w-4 h-4" />
-              Write the first guide
+              <Plus className="w-4 h-4" /> Write the first guide
             </Button>
           )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {guides?.map(guide => (
-            <GuideCard key={guide.id} guide={guide} />
-          ))}
+          {guides?.map(guide => <GuideCard key={guide.id} guide={guide} />)}
+        </div>
+      )}
+
+      {/* Series section */}
+      {seriesList && seriesList.length > 0 && (
+        <div className="mt-12">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-display text-lg font-extrabold flex items-center gap-2">
+              <Star className="w-5 h-5 text-primary" />
+              Series {vertical && activeVertical ? `— ${activeVertical.label}` : ""}
+            </h2>
+            <Link href="/guide-series" className="text-sm text-primary hover:underline flex items-center gap-1">
+              View all <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {seriesList.slice(0, 6).map((s: any) => <SeriesCard key={s.id} series={s} />)}
+          </div>
         </div>
       )}
     </div>

@@ -28,10 +28,11 @@ import {
 } from "lucide-react";
 import { AffiliateAdminTab } from "@/components/AffiliateAdminTab";
 import { PermissionsAdminTab } from "@/components/PermissionsAdminTab";
+import { RevenueShareAdminTab } from "@/components/RevenueShareAdminTab";
 import { useAppConfig } from "@/hooks/use-cf-url";
 import { timeAgo } from "@/lib/utils";
 
-type AdminTab = "overview" | "users" | "listings" | "reports" | "groups" | "ads" | "moderation" | "keywords" | "audit" | "video" | "affiliate" | "permissions";
+type AdminTab = "overview" | "users" | "listings" | "reports" | "groups" | "ads" | "moderation" | "keywords" | "audit" | "video" | "affiliate" | "permissions" | "revenue_share";
 
 // ─── Stat Card ───────────────────────────────────────────────
 function StatCard({ label, value, icon: Icon, color = "text-primary", urgent = false }: any) {
@@ -699,6 +700,7 @@ export default function AdminPage() {
     { id: "video", label: "Video", icon: Video, superOnly: true },
     { id: "affiliate", label: "Affiliate & AI", icon: Link2, superOnly: true },
     { id: "permissions", label: "Permissions", icon: KeyRound, superOnly: true },
+    { id: "revenue_share", label: "Revenue Share", icon: DollarSign, superOnly: true },
   ];
 
   return (
@@ -748,6 +750,7 @@ export default function AdminPage() {
       {activeTab === "video" && <VideoAdminTab />}
       {activeTab === "affiliate" && <AffiliateAdminTab />}
       {activeTab === "permissions" && <PermissionsAdminTab />}
+      {activeTab === "revenue_share" && <RevenueShareAdminTab />}
     </div>
   );
 }

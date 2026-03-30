@@ -1259,7 +1259,19 @@ export class SupabaseStorage implements IStorage {
       updatedAt: row.updated_at,
       author,
       isLiked,
-    };
+      // V2 fields
+      vertical: row.vertical || "automotive",
+      subjectData: row.subject_data || {},
+      qualityScore: row.quality_score || 0,
+      isMonetized: row.is_monetized || false,
+      communityVerified: row.community_verified || false,
+      seriesId: row.series_id || null,
+      seriesPosition: row.series_position || null,
+      headerEmbedUrl: row.header_embed_url || null,
+      headerEmbedType: row.header_embed_type || null,
+      businessPageId: row.business_page_id || null,
+      groupId: row.group_id || null,
+    } as any;
   }
 
   private mapGuideComment(row: any, author?: User): GuideComment {
@@ -1285,18 +1297,45 @@ export class SupabaseStorage implements IStorage {
     return this.mapGuide(data, author, isLiked);
   }
 
-  async listGuides(filters?: { category?: string; difficulty?: string; search?: string; authorId?: number }): Promise<Guide[]> {
-    let query = supabaseAdmin.from("guides").select("*").order("created_at", { ascending: false });
+  async listGuides(filters?: {
+    category?: string; difficulty?: string; search?: string;
+    authorId?: number; vertical?: string; seriesId?: number;
+    businessPageId?: number; groupId?: number;
+    sortBy?: "quality" | "recent" | "popular";
+  }): Promise<Guide[]> {
+    // Sort: quality score by default (best guides first), fallback to created_at
+    const sortBy = filters?.sortBy || "quality";
+    let query = supabaseAdmin.from("guides").select("*");
+
+    if (sortBy === "quality") {
+      query = query.order("quality_score", { ascending: false }).order("created_at", { ascending: false });
+    } else if (sortBy === "popular") {
+      query = query.order("views", { ascending: false });
+    } else {
+      query = query.order("created_at", { ascending: false });
+    }
+
     if (filters?.category) query = query.eq("category", filters.category);
     if (filters?.difficulty) query = query.eq("difficulty", filters.difficulty);
     if (filters?.authorId) query = query.eq("author_id", filters.authorId);
-    if (filters?.search) query = query.ilike("title", `%${filters.search}%`);
+    if (filters?.vertical) query = query.eq("vertical", filters.vertical);
+    if (filters?.seriesId) query = query.eq("series_id", filters.seriesId);
+    if (filters?.businessPageId) query = query.eq("business_page_id", filters.businessPageId);
+    if (filters?.groupId) query = query.eq("group_id", filters.groupId);
+    if (filters?.search) {
+      query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+    }
+
     const { data } = await query.limit(100);
     const rows = data || [];
-    return Promise.all(rows.map(async (row: any) => {
-      const author = await this.getUser(row.author_id);
-      return this.mapGuide(row, author);
-    }));
+    // Use a single batch query for authors to avoid N+1
+    const authorIds = [...new Set(rows.map((r: any) => r.author_id))];
+    const authorMap = new Map<number, User>();
+    if (authorIds.length > 0) {
+      const { data: authors } = await supabaseAdmin.from("users").select("*").in("id", authorIds);
+      for (const a of (authors || [])) authorMap.set(a.id, this.mapUser(a));
+    }
+    return rows.map((row: any) => this.mapGuide(row, authorMap.get(row.author_id)));
   }
 
   async createGuide(guide: InsertGuide): Promise<Guide> {

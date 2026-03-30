@@ -587,3 +587,62 @@ affiliateRouter.get("/admin/llm-status",
     res.json(getLLMProviderStatus());
   }
 );
+
+// ============================================================
+// GUIDE MONETIZATION & REVENUE SHARE ENDPOINTS
+// ============================================================
+
+// PATCH /api/affiliate/admin/guides/:id/monetize — approve/reject monetization
+affiliateRouter.patch("/admin/guides/:id/monetize", requireAuth, requirePermission("guides.approve_extraction"), async (req, res) => {
+  const user = (req as any).currentUser;
+  const { approved, notes } = req.body;
+  const updates: any = {
+    is_monetized: approved,
+    community_verified: approved,
+    revenue_share_enabled: approved,
+  };
+  if (approved) {
+    updates.monetized_at = new Date().toISOString();
+    updates.monetized_by = user.id;
+  }
+  await sb!.from("guides").update(updates).eq("id", Number(req.params.id));
+
+  if (approved) {
+    const { data: guide } = await sb!.from("guides").select("author_id, title").eq("id", Number(req.params.id)).single();
+    if (guide) {
+      await sb!.from("notifications").insert({
+        user_id: guide.author_id, type: "guide_monetized",
+        title: "Your guide is approved for revenue sharing! 💰",
+        body: guide.title, link_type: "guide", link_id: Number(req.params.id),
+      });
+    }
+  }
+  res.json({ success: true });
+});
+
+// POST /api/affiliate/admin/settings — update platform settings
+affiliateRouter.post("/admin/settings", requireAuth, requirePermission("system.settings"), async (req, res) => {
+  const { key, value } = req.body;
+  const allowed = ["revenue_share", "guide_scoring"];
+  if (!allowed.includes(key)) return res.status(400).json({ error: "Invalid settings key" });
+  await sb!.from("platform_settings").upsert(
+    { key, value, updated_at: new Date().toISOString(), updated_by: (req as any).currentUser.id },
+    { onConflict: "key" }
+  );
+  res.json({ success: true });
+});
+
+// POST /api/affiliate/admin/calculate-payouts — run payout calculation
+affiliateRouter.post("/admin/calculate-payouts", requireAuth, requirePermission("finance.view_revenue"), async (req, res) => {
+  const { month } = req.body;
+  const { calculateMonthlyPayouts } = await import("./guide-scoring");
+  const result = await calculateMonthlyPayouts(month ? new Date(month) : new Date());
+  for (const payout of result.payouts) {
+    await sb!.from("guide_revenue").upsert({
+      guide_id: payout.guideId, author_id: payout.authorId,
+      month: month || new Date().toISOString().slice(0, 7) + "-01",
+      payout_cents: payout.cents, status: "pending",
+    }, { onConflict: "guide_id,month", ignoreDuplicates: false });
+  }
+  res.json(result);
+});
