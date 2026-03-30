@@ -11,7 +11,8 @@ const SUPER_ADMIN_EMAILS = (process.env.SUPER_ADMIN_EMAILS || "todd.englerth@gma
   .split(",")
   .map(e => e.trim().toLowerCase());
 
-export function isSuperAdminEmail(email: string): boolean {
+export function isSuperAdminEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
   return SUPER_ADMIN_EMAILS.includes(email.toLowerCase());
 }
 
@@ -101,18 +102,13 @@ adminRouter.get("/users", async (req, res) => {
   const limit = 25;
   const offset = (Number(page) - 1) * limit;
 
-  // Explicit column list — avoids schema cache errors when new columns
-  // haven't been migrated yet in production
-  const userCols = [
-    "id", "username", "display_name", "email", "avatar", "bio", "location",
-    "member_since", "rating", "review_count", "verified", "response_time",
-    "site_role", "banned", "banned_at", "banned_reason",
-    "follower_count", "following_count", "creator_mode",
-    "created_at",
-  ].join(", ");
+  // Use only the original base columns that have always existed.
+  // New columns (admin_permissions, mfa_enabled, etc.) are fetched
+  // separately only after their migrations have been confirmed.
+  const BASE_USER_COLS = "id, username, display_name, email, avatar, bio, location, member_since, rating, review_count, verified, response_time, site_role, banned, created_at";
 
-  let query = (supabaseAdmin.from("users") as any)
-    .select(userCols, { count: "exact" })
+  let query = supabaseAdmin.from("users")
+    .select(BASE_USER_COLS, { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -125,12 +121,14 @@ adminRouter.get("/users", async (req, res) => {
 
   // Annotate each user with is_owner so client can display correctly
   // regardless of what DB site_role says
-  const annotated = (data || []).map((u: any) => ({
-    ...u,
-    is_owner: isSuperAdminEmail(u.email),
-    // If owner email but site_role is still 'user', show effective role
-    effective_role: isSuperAdminEmail(u.email) ? "super_admin" : (u.site_role || "user"),
-  }));
+  const annotated = (data || []).map((u: any) => {
+    const isOwner = u.email ? isSuperAdminEmail(u.email) : false;
+    return {
+      ...u,
+      is_owner: isOwner,
+      effective_role: isOwner ? "super_admin" : (u.site_role || "user"),
+    };
+  });
 
   res.json({ users: annotated, total: count, page: Number(page), limit });
 });
