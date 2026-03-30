@@ -83,14 +83,22 @@ function OverviewTab() {
 // ─── Users Tab ───────────────────────────────────────────────
 function UsersTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
   const [page, setPage] = useState(1);
   const [banTarget, setBanTarget] = useState<any>(null);
   const [banReason, setBanReason] = useState("");
   const { toast } = useToast();
 
+  const { user: currentUser } = useAuth();
+
   const { data, isLoading, refetch } = useQuery<any>({
-    queryKey: ["/api/admin/users", search, page],
-    queryFn: () => apiRequest("GET", `/api/admin/users?search=${encodeURIComponent(search)}&page=${page}`).then(r => r.json()),
+    queryKey: ["/api/admin/users", search, roleFilter, page],
+    queryFn: () => {
+      const params = new URLSearchParams({ search, page: String(page) });
+      if (roleFilter === "banned") params.set("banned", "true");
+      else if (roleFilter) params.set("role", roleFilter);
+      return apiRequest("GET", `/api/admin/users?${params}`).then(r => r.json());
+    },
   });
 
   const banMutation = useMutation({
@@ -125,13 +133,33 @@ function UsersTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input placeholder="Search users..." className="pl-9" value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <Badge variant="outline" className="h-9 px-3 flex items-center">
+        {/* Role filter pills */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {[
+            { label: "All", value: "" },
+            { label: "🛡 Admins", value: "site_admin" },
+            { label: "⚡ Super Admins", value: "super_admin" },
+            { label: "Users only", value: "user" },
+            { label: "Banned", value: "banned" },
+          ].map(({ label, value }) => (
+            <button key={value}
+              onClick={() => { setRoleFilter(value); setPage(1); }}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                roleFilter === value
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-secondary border-border text-muted-foreground hover:border-primary/40"
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <Badge variant="outline" className="h-9 px-3 flex items-center ml-auto">
           {data?.total ?? 0} users
         </Badge>
       </div>
@@ -169,14 +197,19 @@ function UsersTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                     </div>
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
-                    <Badge variant="outline" className={
-                      user.site_role === "super_admin" ? "border-yellow-500/40 text-yellow-400" :
-                      user.site_role === "site_admin" ? "border-primary/40 text-primary" :
-                      "text-muted-foreground"
-                    }>
-                      {user.site_role === "super_admin" ? "⚡ Super Admin" :
-                       user.site_role === "site_admin" ? "🛡 Admin" : "User"}
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant="outline" className={
+                        user.effective_role === "super_admin" ? "border-yellow-500/40 text-yellow-400" :
+                        user.effective_role === "site_admin" ? "border-primary/40 text-primary" :
+                        "text-muted-foreground"
+                      }>
+                        {user.effective_role === "super_admin" ? "⚡ Super Admin" :
+                         user.effective_role === "site_admin" ? "🛡 Admin" : "User"}
+                      </Badge>
+                      {user.is_owner && (
+                        <Badge className="bg-yellow-500/15 text-yellow-400 border-yellow-500/30 text-[10px] px-1.5 py-0">Owner</Badge>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground text-xs hidden lg:table-cell">
                     {timeAgo(user.created_at)}
@@ -191,16 +224,20 @@ function UsersTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                           ? <><CheckCircle className="w-3.5 h-3.5 text-primary" /> Verified</>
                           : <><Star className="w-3.5 h-3.5" /> Verify</>}
                       </Button>
-                      {/* Role management (super admin only) */}
-                      {isSuperAdmin && user.site_role !== "super_admin" && (
+                      {/* Role management — hide for owner accounts and self */}
+                      {isSuperAdmin && !user.is_owner && user.id !== currentUser?.id && (
                         <Button size="sm" variant="ghost" className="h-7 text-xs gap-1"
-                          onClick={() => { setPromoteTarget(user); setPromoteRole(user.site_role === "site_admin" ? "user" : "site_admin"); setPromoteTemplate(user.site_role === "site_admin" ? "" : "site_admin"); }}>
+                          onClick={() => { setPromoteTarget(user); setPromoteRole(user.effective_role === "site_admin" ? "user" : "site_admin"); setPromoteTemplate(user.effective_role === "site_admin" ? "" : "site_admin"); }}>
                           <Shield className="w-3.5 h-3.5" />
-                          {user.site_role === "site_admin" ? "Change Role" : "Set Role"}
+                          {user.effective_role === "site_admin" ? "Change Role" : "Set Role"}
                         </Button>
                       )}
-                      {/* Ban toggle */}
-                      {user.site_role !== "super_admin" && (
+                      {/* Owner badge — no role actions available */}
+                      {user.is_owner && (
+                        <span className="text-xs text-yellow-400/70 font-medium px-2">Platform Owner</span>
+                      )}
+                      {/* Ban toggle — never for owner */}
+                      {!user.is_owner && user.effective_role !== "super_admin" && (
                         user.banned ? (
                           <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-green-500/30 text-green-400"
                             onClick={() => unbanMutation.mutate(user.id)}>

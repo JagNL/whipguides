@@ -113,7 +113,16 @@ adminRouter.get("/users", async (req, res) => {
   const { data, count, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  res.json({ users: data, total: count, page: Number(page), limit });
+  // Annotate each user with is_owner so client can display correctly
+  // regardless of what DB site_role says
+  const annotated = (data || []).map((u: any) => ({
+    ...u,
+    is_owner: isSuperAdminEmail(u.email),
+    // If owner email but site_role is still 'user', show effective role
+    effective_role: isSuperAdminEmail(u.email) ? "super_admin" : (u.site_role || "user"),
+  }));
+
+  res.json({ users: annotated, total: count, page: Number(page), limit });
 });
 
 adminRouter.get("/users/:id", async (req, res) => {
