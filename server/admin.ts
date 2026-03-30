@@ -101,8 +101,18 @@ adminRouter.get("/users", async (req, res) => {
   const limit = 25;
   const offset = (Number(page) - 1) * limit;
 
-  let query = supabaseAdmin.from("users")
-    .select("*", { count: "exact" })
+  // Explicit column list — avoids schema cache errors when new columns
+  // haven't been migrated yet in production
+  const userCols = [
+    "id", "username", "display_name", "email", "avatar", "bio", "location",
+    "member_since", "rating", "review_count", "verified", "response_time",
+    "site_role", "banned", "banned_at", "banned_reason",
+    "follower_count", "following_count", "creator_mode",
+    "created_at",
+  ].join(", ");
+
+  let query = (supabaseAdmin.from("users") as any)
+    .select(userCols, { count: "exact" })
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
