@@ -113,7 +113,19 @@ adminRouter.get("/users", async (req, res) => {
     .range(offset, offset + limit - 1);
 
   if (search) query = query.or(`username.ilike.%${search}%,email.ilike.%${search}%,display_name.ilike.%${search}%`);
-  if (role) query = query.eq("site_role", role);
+
+  // Role filter — super_admin is special: owner accounts are identified by email,
+  // not by site_role column (DB value may still be "user" for legacy owner rows).
+  // So when filtering for super_admin we OR in the known owner emails.
+  if (role === "super_admin") {
+    // Build an OR: site_role = super_admin OR email IN (owner1, owner2, ...)
+    const emailConditions = SUPER_ADMIN_EMAILS.map(e => `email.eq.${e}`).join(",");
+    const orClause = `site_role.eq.super_admin,${emailConditions}`;
+    query = query.or(orClause);
+  } else if (role) {
+    query = query.eq("site_role", role as string);
+  }
+
   if (banned === "true") query = query.eq("banned", true);
 
   const { data, count, error } = await query;
@@ -436,3 +448,26 @@ reportRouter.post("/", async (req, res) => {
   if (error) return res.status(400).json({ error: error.message });
   res.status(201).json(data);
 });
+
+// ============================================================
+// STARTUP SYNC — ensure all SUPER_ADMIN_EMAIL users have
+// site_role = 'super_admin' in the DB so filters work correctly.
+// Safe to call multiple times; only updates rows that need it.
+// ============================================================
+export async function syncSuperAdminRoles(): Promise<void> {
+  if (!SUPER_ADMIN_EMAILS.length) return;
+
+  for (const email of SUPER_ADMIN_EMAILS) {
+    const { error } = await supabaseAdmin
+      .from("users")
+      .update({ site_role: "super_admin" })
+      .eq("email", email)
+      .neq("site_role", "super_admin"); // only touch rows that need updating
+
+    if (error) {
+      console.warn(`[admin] syncSuperAdminRoles failed for ${email}:`, error.message);
+    } else {
+      console.log(`[admin] syncSuperAdminRoles: ensured super_admin role for ${email}`);
+    }
+  }
+}

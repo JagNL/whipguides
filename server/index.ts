@@ -4,6 +4,7 @@ import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { startCronJobs } from "./cron";
+import { syncSuperAdminRoles } from "./admin";
 import { createServer } from "http";
 
 const app = express();
@@ -124,8 +125,12 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
-    // Start internal cron jobs after server is listening
-    startCronJobs();
+      // Sync owner emails to super_admin DB role (idempotent)
+      syncSuperAdminRoles().catch(err =>
+        console.warn("[startup] syncSuperAdminRoles error:", err)
+      );
+      // Start internal cron jobs after server is listening
+      startCronJobs();
     },
   );
 })();
