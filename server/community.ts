@@ -210,11 +210,23 @@ export async function awardBadge(userId: number, badgeKey: string) {
   await sb.from("user_badges").insert({ user_id: userId, badge_key: badgeKey });
   // Notify user they earned a badge
   const BADGE_LABELS: Record<string, string> = {
-    first_sale: "First Sale", seller_10: "Power Seller", seller_50: "Top Trader",
-    seller_100: "Legend", first_listing: "Lister", guide_author: "Guide Author",
-    guide_10: "Expert", group_founder: "Founder", group_admin: "Admin",
-    follower_10: "Rising Star", follower_100: "Influencer", follower_1k: "Icon",
-    early_adopter: "Early Adopter",
+    first_listing: "Lister", listing_10: "Active Seller", listing_50: "Power Lister",
+    first_sale: "First Sale", seller_10: "Power Seller", seller_50: "Top Trader", seller_100: "Legend",
+    five_star: "5-Star Seller", quick_seller: "Quick Draw",
+    guide_author: "Guide Author", guide_5: "How-To Hero", guide_10: "Expert",
+    guide_25: "Master Wrench", guide_50: "Encyclopedia",
+    guide_helped_10: "Life Saver", guide_helped_100: "Go-To Resource",
+    guide_annotator: "Detail Devil", guide_series: "Series Creator",
+    group_founder: "Founder", group_admin: "Admin", group_5: "Community Builder",
+    first_post: "First Post", post_50: "Conversationalist", post_liked_10: "People's Choice",
+    event_host: "Event Host", event_host_5: "Party Starter",
+    event_goer: "Enthusiast", event_goer_10: "Scene Regular",
+    first_project: "Builder", project_complete: "Finished Strong", project_5: "Serial Builder",
+    follower_10: "Rising Star", follower_100: "Influencer",
+    follower_500: "Community Voice", follower_1k: "Icon",
+    early_adopter: "Early Adopter", verified: "Verified",
+    garage_5: "Gearhead", multi_vertical: "Renaissance",
+    streak_30: "30-Day Streak", whipguides_og: "OG Member",
   };
   const label = BADGE_LABELS[badgeKey] || badgeKey;
   await sb.from("notifications").insert({
@@ -234,28 +246,96 @@ communityRouter.post("/badges/check", requireAuth, async (req, res) => {
 
 async function checkAndAwardBadges(userId: number) {
   if (!sb) return;
-  const [{ count: sales }, { count: listings }, { count: guides }, { data: groups }, { count: followers }] =
-    await Promise.all([
-      sb.from("listings").select("*", { count: "exact", head: true }).eq("seller_id", userId).eq("status", "sold"),
-      sb.from("listings").select("*", { count: "exact", head: true }).eq("seller_id", userId),
-      sb.from("guides").select("*", { count: "exact", head: true }).eq("author_id", userId),
-      sb.from("group_members").select("role").eq("user_id", userId),
-      sb.from("user_follows").select("*", { count: "exact", head: true }).eq("following_id", userId),
-    ]);
+
+  // Batch all counts in parallel — single round-trip
+  const [
+    { count: sales },
+    { count: listings },
+    { count: guides },
+    { data: groups },
+    { count: followers },
+    { count: events },
+    { count: posts },
+    { count: projects },
+    { count: garage },
+    { count: guidesHelped },
+    { count: annotations },
+    { count: seriesCount },
+    { count: eventRsvps },
+  ] = await Promise.all([
+    sb.from("listings").select("*", { count: "exact", head: true }).eq("seller_id", userId).eq("status", "sold"),
+    sb.from("listings").select("*", { count: "exact", head: true }).eq("seller_id", userId),
+    sb.from("guides").select("*", { count: "exact", head: true }).eq("author_id", userId),
+    sb.from("group_members").select("role").eq("user_id", userId),
+    sb.from("user_follows").select("*", { count: "exact", head: true }).eq("following_id", userId),
+    sb.from("events").select("*", { count: "exact", head: true }).eq("organizer_id", userId),
+    sb.from("posts").select("*", { count: "exact", head: true }).eq("author_id", userId),
+    sb.from("projects").select("*", { count: "exact", head: true }).eq("user_id", userId),
+    sb.from("user_items").select("*", { count: "exact", head: true }).eq("user_id", userId),
+    sb.from("guide_helped").select("*", { count: "exact", head: true }).eq("user_id", userId),
+    sb.from("guides").select("*", { count: "exact", head: true }).eq("author_id", userId).not("steps", "eq", "[]"),
+    sb.from("guide_series").select("*", { count: "exact", head: true }).eq("author_id", userId),
+    sb.from("event_rsvps").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("status", "going"),
+  ]);
 
   const awards: string[] = [];
-  if ((sales ?? 0) >= 1)    awards.push("first_sale");
-  if ((sales ?? 0) >= 10)   awards.push("seller_10");
-  if ((sales ?? 0) >= 50)   awards.push("seller_50");
-  if ((sales ?? 0) >= 100)  awards.push("seller_100");
-  if ((listings ?? 0) >= 1) awards.push("first_listing");
-  if ((guides ?? 0) >= 1)   awards.push("guide_author");
-  if ((guides ?? 0) >= 10)  awards.push("guide_10");
-  if ((followers ?? 0) >= 10)  awards.push("follower_10");
-  if ((followers ?? 0) >= 100) awards.push("follower_100");
-  if ((followers ?? 0) >= 1000) awards.push("follower_1k");
+
+  // Marketplace
+  if ((listings ?? 0) >= 1)  awards.push("first_listing");
+  if ((listings ?? 0) >= 10) awards.push("listing_10");
+  if ((listings ?? 0) >= 50) awards.push("listing_50");
+  if ((sales ?? 0) >= 1)     awards.push("first_sale");
+  if ((sales ?? 0) >= 10)    awards.push("seller_10");
+  if ((sales ?? 0) >= 50)    awards.push("seller_50");
+  if ((sales ?? 0) >= 100)   awards.push("seller_100");
+
+  // Guides
+  if ((guides ?? 0) >= 1)    awards.push("guide_author");
+  if ((guides ?? 0) >= 5)    awards.push("guide_5");
+  if ((guides ?? 0) >= 10)   awards.push("guide_10");
+  if ((guides ?? 0) >= 25)   awards.push("guide_25");
+  if ((guides ?? 0) >= 50)   awards.push("guide_50");
+  if ((guidesHelped ?? 0) >= 10)  awards.push("guide_helped_10");
+  if ((guidesHelped ?? 0) >= 100) awards.push("guide_helped_100");
+  if ((annotations ?? 0) >= 1)    awards.push("guide_annotator");
+  if ((seriesCount ?? 0) >= 1)    awards.push("guide_series");
+
+  // Groups & Community
   if (groups?.some((g: any) => g.role === "owner")) awards.push("group_founder");
   if (groups?.some((g: any) => ["owner", "admin"].includes(g.role))) awards.push("group_admin");
+  if ((groups?.length ?? 0) >= 5) awards.push("group_5");
+  if ((posts ?? 0) >= 1)   awards.push("first_post");
+  if ((posts ?? 0) >= 50)  awards.push("post_50");
+
+  // Events
+  if ((events ?? 0) >= 1)      awards.push("event_host");
+  if ((events ?? 0) >= 5)      awards.push("event_host_5");
+  if ((eventRsvps ?? 0) >= 1)  awards.push("event_goer");
+  if ((eventRsvps ?? 0) >= 10) awards.push("event_goer_10");
+
+  // Projects
+  if ((projects ?? 0) >= 1) awards.push("first_project");
+  if ((projects ?? 0) >= 5) awards.push("project_5");
+
+  // Garage
+  if ((garage ?? 0) >= 5) awards.push("garage_5");
+
+  // Followers
+  if ((followers ?? 0) >= 10)   awards.push("follower_10");
+  if ((followers ?? 0) >= 100)  awards.push("follower_100");
+  if ((followers ?? 0) >= 500)  awards.push("follower_500");
+  if ((followers ?? 0) >= 1000) awards.push("follower_1k");
+
+  // Multi-vertical: active in 3+ different content areas
+  const activeAreas = [
+    (guides ?? 0) > 0,
+    (listings ?? 0) > 0,
+    (events ?? 0) > 0 || (eventRsvps ?? 0) > 0,
+    (projects ?? 0) > 0,
+    (posts ?? 0) > 0,
+    (groups?.length ?? 0) > 0,
+  ].filter(Boolean).length;
+  if (activeAreas >= 3) awards.push("multi_vertical");
 
   for (const key of awards) await awardBadge(userId, key);
 }

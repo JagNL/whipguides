@@ -36,20 +36,61 @@ import { guideUrl, profileUrl, timeAgo } from "@/lib/utils";
 type Tab = "listings" | "reviews" | "posts" | "garage" | "projects" | "badges" | "guides";
 
 // ── Badge definitions ─────────────────────────────────────────
-const BADGE_DEFS: Record<string, { label: string; icon: string; desc: string; color: string }> = {
-  first_sale: { label: "First Sale", icon: "🏷️", desc: "Completed your first sale", color: "text-green-400" },
-  seller_10: { label: "Power Seller", icon: "⚡", desc: "10 completed sales", color: "text-yellow-400" },
-  seller_50: { label: "Top Trader", icon: "🏆", desc: "50 completed sales", color: "text-orange-400" },
-  seller_100: { label: "Legend", icon: "💎", desc: "100 completed sales", color: "text-purple-400" },
-  first_listing: { label: "Lister", icon: "📋", desc: "Created your first listing", color: "text-blue-400" },
-  guide_author: { label: "Guide Author", icon: "📖", desc: "Wrote your first guide", color: "text-cyan-400" },
-  guide_10: { label: "Expert", icon: "🎓", desc: "Wrote 10 guides", color: "text-indigo-400" },
-  group_founder: { label: "Founder", icon: "🏛️", desc: "Created a community group", color: "text-amber-400" },
-  group_admin: { label: "Admin", icon: "🛡️", desc: "Group administrator", color: "text-slate-400" },
-  follower_10: { label: "Rising Star", icon: "⭐", desc: "10 followers", color: "text-yellow-300" },
-  follower_100: { label: "Influencer", icon: "🌟", desc: "100 followers", color: "text-yellow-400" },
-  follower_1k: { label: "Icon", icon: "👑", desc: "1,000 followers", color: "text-primary" },
-  early_adopter: { label: "Early Adopter", icon: "🚀", desc: "One of the first WhipGuides members", color: "text-primary" },
+// ── Badge Definitions ─────────────────────────────────────────
+// Covers all 7 activity domains: Marketplace, Guides, Groups,
+// Community, Events, Projects, and Platform/Meta achievements.
+const BADGE_DEFS: Record<string, {
+  label: string; icon: string; desc: string; color: string;
+  category: string; // for grouping display
+}> = {
+  // ── Marketplace ──────────────────────────────────────────────
+  first_listing:  { label: "Lister",        icon: "📋", desc: "Created your first listing",      color: "text-blue-400",   category: "Marketplace" },
+  listing_10:     { label: "Active Seller",  icon: "🛒", desc: "Created 10 listings",             color: "text-blue-300",   category: "Marketplace" },
+  listing_50:     { label: "Power Lister",   icon: "📦", desc: "Created 50 listings",             color: "text-blue-200",   category: "Marketplace" },
+  first_sale:     { label: "First Sale",     icon: "🏷️", desc: "Completed your first sale",       color: "text-green-400",  category: "Marketplace" },
+  seller_10:      { label: "Power Seller",   icon: "⚡",  desc: "10 completed sales",             color: "text-yellow-400", category: "Marketplace" },
+  seller_50:      { label: "Top Trader",     icon: "🏆", desc: "50 completed sales",              color: "text-orange-400", category: "Marketplace" },
+  seller_100:     { label: "Legend",         icon: "💎", desc: "100 completed sales",             color: "text-purple-400", category: "Marketplace" },
+  five_star:      { label: "5-Star Seller",  icon: "⭐",  desc: "Maintained a 5.0 seller rating", color: "text-yellow-300", category: "Marketplace" },
+  quick_seller:   { label: "Quick Draw",     icon: "⚡",  desc: "Sold an item within 24 hours",   color: "text-green-300",  category: "Marketplace" },
+  // ── Guides ───────────────────────────────────────────────────
+  guide_author:   { label: "Guide Author",   icon: "📖", desc: "Wrote your first guide",          color: "text-cyan-400",   category: "Guides" },
+  guide_5:        { label: "How-To Hero",    icon: "🔧", desc: "Wrote 5 guides",                  color: "text-cyan-300",   category: "Guides" },
+  guide_10:       { label: "Expert",         icon: "🎓", desc: "Wrote 10 guides",                 color: "text-indigo-400", category: "Guides" },
+  guide_25:       { label: "Master Wrench",  icon: "🏅", desc: "Wrote 25 guides",                 color: "text-indigo-300", category: "Guides" },
+  guide_50:       { label: "Encyclopedia",   icon: "📚", desc: "Wrote 50 guides",                 color: "text-violet-400", category: "Guides" },
+  guide_helped_10:{ label: "Life Saver",     icon: "🛠️", desc: "Helped 10 people with a guide",   color: "text-emerald-400",category: "Guides" },
+  guide_helped_100:{label:"Go-To Resource",  icon: "🌐", desc: "Helped 100 people with guides",   color: "text-emerald-300",category: "Guides" },
+  guide_annotator:{ label: "Detail Devil",   icon: "📌", desc: "Added annotations to a guide",    color: "text-rose-400",   category: "Guides" },
+  guide_series:   { label: "Series Creator", icon: "📂", desc: "Published a guide series",        color: "text-blue-400",   category: "Guides" },
+  // ── Groups & Community ───────────────────────────────────────
+  group_founder:  { label: "Founder",        icon: "🏛️", desc: "Created a community group",       color: "text-amber-400",  category: "Community" },
+  group_admin:    { label: "Admin",          icon: "🛡️", desc: "Group administrator",              color: "text-slate-400",  category: "Community" },
+  group_5:        { label: "Community Builder",icon:"🏘️",desc: "Member of 5 groups",              color: "text-amber-300",  category: "Community" },
+  first_post:     { label: "First Post",     icon: "💬", desc: "Made your first group post",      color: "text-teal-400",   category: "Community" },
+  post_50:        { label: "Conversationalist",icon:"🗣️",desc: "Made 50 group posts",             color: "text-teal-300",   category: "Community" },
+  post_liked_10:  { label: "People's Choice", icon: "❤️", desc: "Received 10 likes on posts",     color: "text-pink-400",   category: "Community" },
+  // ── Events ───────────────────────────────────────────────────
+  event_host:     { label: "Event Host",     icon: "🎪", desc: "Organized your first event",      color: "text-fuchsia-400",category: "Events" },
+  event_host_5:   { label: "Party Starter",  icon: "🎉", desc: "Organized 5 events",              color: "text-fuchsia-300",category: "Events" },
+  event_goer:     { label: "Enthusiast",     icon: "📅", desc: "RSVPd to your first event",       color: "text-purple-400", category: "Events" },
+  event_goer_10:  { label: "Scene Regular",  icon: "🎫", desc: "Attended 10 events",              color: "text-purple-300", category: "Events" },
+  // ── Projects ─────────────────────────────────────────────────
+  first_project:  { label: "Builder",        icon: "🔩", desc: "Logged your first build project", color: "text-orange-400", category: "Projects" },
+  project_complete:{ label: "Finished Strong",icon:"✅", desc: "Completed a build project",       color: "text-green-400",  category: "Projects" },
+  project_5:      { label: "Serial Builder", icon: "⚙️", desc: "Logged 5 build projects",         color: "text-orange-300", category: "Projects" },
+  // ── Followers & Influence ────────────────────────────────────
+  follower_10:    { label: "Rising Star",    icon: "⭐",  desc: "10 followers",                    color: "text-yellow-300", category: "Influence" },
+  follower_100:   { label: "Influencer",     icon: "🌟", desc: "100 followers",                   color: "text-yellow-400", category: "Influence" },
+  follower_500:   { label: "Community Voice",icon: "📣", desc: "500 followers",                   color: "text-yellow-200", category: "Influence" },
+  follower_1k:    { label: "Icon",           icon: "👑", desc: "1,000 followers",                 color: "text-primary",    category: "Influence" },
+  // ── Platform Meta ────────────────────────────────────────────
+  early_adopter:  { label: "Early Adopter",  icon: "🚀", desc: "One of the first WhipGuides members", color: "text-primary", category: "Platform" },
+  verified:       { label: "Verified",       icon: "✅",  desc: "Identity verified member",        color: "text-blue-400",  category: "Platform" },
+  garage_5:       { label: "Gearhead",       icon: "🏎️", desc: "Added 5 vehicles to your garage", color: "text-red-400",   category: "Platform" },
+  multi_vertical: { label: "Renaissance",    icon: "🎭", desc: "Active in 3+ community verticals", color: "text-violet-300",category: "Platform" },
+  streak_30:      { label: "30-Day Streak",  icon: "🔥", desc: "Active 30 days in a row",          color: "text-orange-400",category: "Platform" },
+  whipguides_og:  { label: "OG Member",      icon: "🏁", desc: "Charter WhipGuides member",        color: "text-primary",   category: "Platform" },
 };
 
 const VERTICALS = ["automotive", "music", "tech", "firearms", "powersports", "general"] as const;
@@ -984,14 +1025,32 @@ export default function ProfilePage({ id }: { id: number }) {
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
               {(badges as any[]).map((b: any) => {
-                const def = BADGE_DEFS[b.badge_type] || { label: b.badge_type, icon: "🏅", desc: "", color: "text-primary" };
+                // API returns badge_key (DB column name), not badge_type
+                const key = b.badge_key || b.badge_type || "";
+                const def = BADGE_DEFS[key] || {
+                  label: key.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
+                  icon: "🏅", desc: "", color: "text-primary", category: "Other",
+                };
                 return (
-                  <div key={b.id} className="bg-card border border-border rounded-xl p-4 text-center space-y-2"
-                    data-testid={`badge-${b.badge_type}`}>
-                    <span className="text-4xl">{def.icon}</span>
-                    <p className={`font-bold text-sm ${def.color}`}>{def.label}</p>
-                    <p className="text-xs text-muted-foreground">{def.desc}</p>
-                    {b.awarded_at && <p className="text-[10px] text-muted-foreground">{new Date(b.awarded_at).toLocaleDateString()}</p>}
+                  <div key={b.id}
+                    className="bg-card border border-border rounded-xl p-4 flex flex-col items-center gap-2 hover:border-primary/30 transition-colors"
+                    data-testid={`badge-${key}`}>
+                    {/* Icon */}
+                    <span className="text-4xl leading-none mt-1">{def.icon}</span>
+                    {/* Name — always visible, styled per badge color */}
+                    <p className={`font-bold text-sm text-center leading-tight ${def.color}`}>{def.label}</p>
+                    {/* Description */}
+                    <p className="text-[11px] text-muted-foreground text-center leading-snug">{def.desc}</p>
+                    {/* Category pill */}
+                    <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground uppercase tracking-wide">
+                      {def.category}
+                    </span>
+                    {/* Earned date */}
+                    {b.awarded_at && (
+                      <p className="text-[10px] text-muted-foreground/60">
+                        Earned {new Date(b.awarded_at).toLocaleDateString()}
+                      </p>
+                    )}
                   </div>
                 );
               })}
