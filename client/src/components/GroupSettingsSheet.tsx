@@ -22,6 +22,7 @@ import {
   Loader2, AlertTriangle, Check, Lock, Globe, Plus,
 } from "lucide-react";
 import { Link } from "wouter";
+import { profileUrl } from "@/lib/utils";
 
 const TABS = [
   { id: "general",    label: "General",    icon: Settings },
@@ -502,14 +503,14 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
                 <div className="flex items-center gap-2">
                   <Input
                     readOnly
-                    value={`${window.location.origin}/groups/${group.id}`}
+                    value={`${window.location.origin}${groupUrl(group.id, group.name)}`}
                     className="bg-background border-border text-xs"
                   />
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/groups/${group.id}`);
+                      navigator.clipboard.writeText(`${window.location.origin}${groupUrl(group.id, group.name)}`);
                       toast({ title: "Link copied!" });
                     }}
                   >
@@ -681,7 +682,7 @@ function MemberRow({ member, groupId, isOwner, isSiteAdmin, userId, onRole, onRe
 
   return (
     <div className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-secondary transition-colors group">
-      <Link href={`/profile/${member.id}`}>
+      <Link href={profileUrl(member.id, member.display_name || member.username)}>
         <Avatar className="w-8 h-8 shrink-0 cursor-pointer">
           <AvatarImage src={member.avatar} />
           <AvatarFallback className="text-xs bg-primary/20 text-primary">

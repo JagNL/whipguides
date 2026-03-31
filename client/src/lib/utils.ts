@@ -1,6 +1,47 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
+/**
+ * slugify — converts any string into a URL-safe slug.
+ * "Polaris Sportsman 500's" → "polaris-sportsman-500s"
+ * Used in ID+slug URLs: /groups/14/polaris-sportsman-500s
+ */
+export function slugify(str: string): string {
+  return str
+    .toLowerCase()
+    .normalize("NFD")                    // decompose accented chars
+    .replace(/[\u0300-\u036f]/g, "")    // strip diacritics
+    .replace(/[^a-z0-9\s-]/g, "")      // strip non-alphanumeric (keep spaces/hyphens)
+    .trim()
+    .replace(/[\s_]+/g, "-")            // spaces/underscores → hyphens
+    .replace(/-{2,}/g, "-")             // collapse multiple hyphens
+    .replace(/^-|-$/g, "");             // trim leading/trailing hyphens
+}
+
+/** Build a canonical group URL: /groups/14/polaris-sportsman-500s */
+export function groupUrl(id: number | string, name?: string | null): string {
+  const slug = name ? slugify(name) : null;
+  return slug ? `/groups/${id}/${slug}` : `/groups/${id}`;
+}
+
+/** Build a canonical guide URL: /guides/23/how-to-rebuild-a-carburetor */
+export function guideUrl(id: number | string, title?: string | null): string {
+  const slug = title ? slugify(title) : null;
+  return slug ? `/guides/${id}/${slug}` : `/guides/${id}`;
+}
+
+/** Build a canonical listing URL: /listing/7/1969-camaro-ss */
+export function listingUrl(id: number | string, title?: string | null): string {
+  const slug = title ? slugify(title) : null;
+  return slug ? `/listing/${id}/${slug}` : `/listing/${id}`;
+}
+
+/** Build a canonical profile URL: /profile/5/todd-englerth */
+export function profileUrl(id: number | string, name?: string | null): string {
+  const slug = name ? slugify(name) : null;
+  return slug ? `/profile/${id}/${slug}` : `/profile/${id}`;
+}
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }

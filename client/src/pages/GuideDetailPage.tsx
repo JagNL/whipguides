@@ -27,6 +27,7 @@ import type { Guide, GuideComment } from "@/../../server/storage";
 import { extractYouTubeId } from "@/lib/guide-verticals";
 import { GUIDE_VERTICALS } from "@/lib/guide-verticals";
 import { VERTICAL_ICONS } from "@/components/CreateGuideSteps";
+import { guideUrl, profileUrl, slugify } from "@/lib/utils";
 
 function difficultyColor(d: string) {
   if (d === "beginner") return "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20";
@@ -123,14 +124,14 @@ function SeriesNav({ seriesId, currentGuideId }: { seriesId: number; currentGuid
       {/* Prev/Next */}
       <div className="flex items-center justify-between gap-2">
         {prevGuide ? (
-          <Link href={`/guides/${prevGuide.id}`} className="flex-1">
+          <Link href={guideUrl(prevGuide.id, prevGuide.title)} className="flex-1">
             <Button variant="ghost" size="sm" className="gap-1.5 text-xs w-full justify-start">
               <ChevronLeft className="w-3.5 h-3.5" /> {prevGuide.title}
             </Button>
           </Link>
         ) : <div />}
         {nextGuide ? (
-          <Link href={`/guides/${nextGuide.id}`} className="flex-1">
+          <Link href={guideUrl(nextGuide.id, nextGuide.title)} className="flex-1">
             <Button variant="ghost" size="sm" className="gap-1.5 text-xs w-full justify-end">
               {nextGuide.title} <ChevronRight className="w-3.5 h-3.5" />
             </Button>
@@ -298,12 +299,30 @@ export default function GuideDetailPage({ id }: { id: number }) {
     queryFn: () => apiRequest("GET", `/api/guides/${id}`).then(r => r.json()),
   });
 
-  // SEO — updates whenever guide loads
+  
+  // Canonical slug redirect — if URL has no slug or wrong slug, replace with correct one
+  // e.g. /groups/14 → /groups/14/polaris-sportsman-500s (no page reload, just history update)
+  useEffect(() => { // slug_redirect
+    if (guide && typeof window !== "undefined") {
+      const correctSlug = slugify(guide.title || "");
+      const path = window.location.pathname;
+      const parts = path.split("/").filter(Boolean);
+      // parts: ["groups", "14"] or ["groups", "14", "some-old-slug"]
+      const hasSlug = parts.length >= 3;
+      const currentSlug = hasSlug ? parts[parts.length - 1] : "";
+      if (correctSlug && currentSlug !== correctSlug) {
+        const canonical = guideUrl(id, guide.title);
+        window.history.replaceState(null, "", canonical);
+      }
+    }
+  }, [guide]);
+
+    // SEO — updates whenever guide loads
   useSEO({
     title: guide ? (guide as any).title : "Guide",
     description: guide ? (guide as any).description?.slice(0, 160) : undefined,
     image: guide ? ((guide as any).coverImage || (guide as any).coverImageId || null) : null,
-    url: `${window.location.origin}/guides/${id}`,
+    url: `${window.location.origin}${guideUrl(id, (guide as any)?.title)}`,
     type: "article",
   });
 
@@ -455,7 +474,7 @@ export default function GuideDetailPage({ id }: { id: number }) {
                   {guide.author.displayName?.[0]?.toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <Link href={`/profile/${guide.authorId}`} className="hover:text-foreground transition-colors">
+              <Link href={profileUrl(guide.authorId, (guide as any).authorName)} className="hover:text-foreground transition-colors">
                 {guide.author.displayName ?? guide.author.username}
               </Link>
             </div>

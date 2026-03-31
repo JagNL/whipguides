@@ -18,7 +18,7 @@ import { GroupSettingsSheet } from "@/components/GroupSettingsSheet";
 import { VideoUploader, type VideoUploadResult } from "@/components/VideoUploader";
 import { VideoPlayer, VideoThumbnail } from "@/components/VideoPlayer";
 import { useAppConfig } from "@/hooks/use-cf-url";
-import { timeAgo } from "@/lib/utils";
+import { groupUrl, guideUrl, profileUrl, slugify, timeAgo } from "@/lib/utils";
 import {
   Users, MessageSquare, Heart, Share2, Plus,
   MoreHorizontal, TrendingUp, ImageIcon, X, Loader2,
@@ -204,14 +204,14 @@ function PostCard({ post, currentUserId, groupAdminRole }: {
       {/* Author row */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2.5">
-          <Link href={`/profile/${post.author?.id}`}>
+          <Link href={profileUrl(post.author?.id, post.author?.displayName || post.author?.username)}>
             <Avatar className="w-9 h-9 cursor-pointer">
               <AvatarImage src={post.author?.avatar} />
               <AvatarFallback>{post.author?.displayName?.[0]}</AvatarFallback>
             </Avatar>
           </Link>
           <div>
-            <Link href={`/profile/${post.author?.id}`}>
+            <Link href={profileUrl(post.author?.id, post.author?.displayName || post.author?.username)}>
               <span className="font-semibold text-sm hover:text-primary transition-colors cursor-pointer">
                 {post.author?.displayName}
               </span>
@@ -652,7 +652,7 @@ function RelatedGuides({ category }: { category?: string }) {
       </div>
       <div className="space-y-2">
         {displayed.map((guide: any) => (
-          <Link key={guide.id} href={`/guides/${guide.id}`}>
+          <Link key={guide.id} href={guideUrl(guide.id, guide.title)}>
             <div className="flex items-start gap-2.5 py-2 border-b border-border last:border-0 hover:opacity-80 transition-opacity cursor-pointer">
               <div className="w-8 h-8 rounded-md bg-secondary flex items-center justify-center shrink-0 overflow-hidden">
                 <BookOpen className="w-4 h-4 text-muted-foreground/50" />
@@ -795,7 +795,7 @@ function GroupSearchPanel({ groupId }: { groupId: number }) {
               : !memberResults?.length
               ? <div className="text-xs text-muted-foreground text-center py-3">No members found</div>
               : memberResults.map((u: any) => (
-                <Link key={u.id} href={`/profile/${u.id}`}>
+                <Link key={u.id} href={profileUrl(u.id, u.display_name || u.username)}>
                   <div className="flex items-center gap-2 p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer">
                     <Avatar className="w-7 h-7 shrink-0">
                       <AvatarImage src={u.avatar} />
@@ -1092,7 +1092,7 @@ function GroupGuidesPanel({ groupId, isGroupAdmin, currentUserId }: {
                 <BookOpen className="w-5 h-5 text-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <Link href={`/guides/${guide.id}`}>
+                <Link href={guideUrl(guide.id, guide.title)}>
                   <p className="font-semibold text-sm hover:text-primary transition-colors line-clamp-1">{guide.title}</p>
                 </Link>
                 <div className="flex flex-wrap items-center gap-2 mt-1">
@@ -1303,12 +1303,30 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const isOwner = user && group && user.id === group.ownerId;
   const isGroupAdmin = isOwner || myRole === "admin" || isSiteAdmin;
 
-  // SEO
+  
+  // Canonical slug redirect — if URL has no slug or wrong slug, replace with correct one
+  // e.g. /groups/14 → /groups/14/polaris-sportsman-500s (no page reload, just history update)
+  useEffect(() => { // slug_redirect
+    if (group && typeof window !== "undefined") {
+      const correctSlug = slugify(group.name || "");
+      const path = window.location.pathname;
+      const parts = path.split("/").filter(Boolean);
+      // parts: ["groups", "14"] or ["groups", "14", "some-old-slug"]
+      const hasSlug = parts.length >= 3;
+      const currentSlug = hasSlug ? parts[parts.length - 1] : "";
+      if (correctSlug && currentSlug !== correctSlug) {
+        const canonical = groupUrl(id, group.name);
+        window.history.replaceState(null, "", canonical);
+      }
+    }
+  }, [group]);
+
+    // SEO
   useSEO({
     title: group ? group.name : "Group",
     description: group?.description || undefined,
     image: group?.coverImage || null,
-    url: `${window.location.origin}/groups/${id}`,
+    url: `${window.location.origin}${groupUrl(id, group?.name)}`,
   });
 
   // Settings sheet + delete dialog state
@@ -1634,7 +1652,7 @@ export default function GroupDetailPage({ id }: { id: number }) {
                 </div>
               ) : (
                 membersList.map((m: any) => (
-                  <Link key={m.id} href={`/profile/${m.id}`}>
+                  <Link key={m.id} href={profileUrl(m.id, m.display_name || m.username)}>
                     <div className="flex items-center gap-3 p-3 bg-card rounded-xl border border-border hover:border-primary/40 transition-colors cursor-pointer group">
                       <Avatar className="w-10 h-10 shrink-0">
                         <AvatarImage src={m.avatar} />

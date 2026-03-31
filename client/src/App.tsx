@@ -36,10 +36,14 @@ export default function App() {
       <AuthProvider>
         <Switch>
             <Route path="/" component={() => <Layout><HomePage /></Layout>} />
+            {/* ID-only routes kept for backward compat (redirects handled inside each page) */}
             <Route path="/listing/:id" component={({ params }) => <Layout><ListingDetailPage id={Number(params.id)} /></Layout>} />
+            <Route path="/listing/:id/:slug" component={({ params }) => <Layout><ListingDetailPage id={Number(params.id)} /></Layout>} />
             <Route path="/groups" component={() => <Layout><GroupsPage /></Layout>} />
             <Route path="/groups/:id" component={({ params }) => <Layout><GroupDetailPage id={Number(params.id)} /></Layout>} />
+            <Route path="/groups/:id/:slug" component={({ params }) => <Layout><GroupDetailPage id={Number(params.id)} /></Layout>} />
             <Route path="/profile/:id" component={({ params }) => <Layout><ProfilePage id={Number(params.id)} /></Layout>} />
+            <Route path="/profile/:id/:slug" component={({ params }) => <Layout><ProfilePage id={Number(params.id)} /></Layout>} />
             <Route path="/sell" component={() => <Layout><CreateListingPage /></Layout>} />
             <Route path="/messages" component={() => <Layout><MessagesPage /></Layout>} />
             <Route path="/messages/:userId" component={({ params }) => <Layout><MessagesPage threadUserId={Number(params.userId)} /></Layout>} />
@@ -47,6 +51,7 @@ export default function App() {
             <Route path="/guides" component={() => <Layout><GuidesPage /></Layout>} />
             <Route path="/guides/new" component={() => <Layout><CreateGuidePage /></Layout>} />
             <Route path="/guides/:id" component={({ params }) => <Layout><GuideDetailPage id={Number(params.id)} /></Layout>} />
+            <Route path="/guides/:id/:slug" component={({ params }) => <Layout><GuideDetailPage id={Number(params.id)} /></Layout>} />
             <Route path="/auth/callback" component={() => <AuthCallbackPage />} />
             <Route path="/search" component={() => <Layout><SearchPage /></Layout>} />
             <Route path="/saved" component={() => <Layout><SavedListsPage /></Layout>} />

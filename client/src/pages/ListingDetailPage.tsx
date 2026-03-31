@@ -8,7 +8,7 @@ import { StarRating } from "@/components/StarRating";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Link, useLocation } from "wouter";
 import { useState, useEffect } from "react";
-import { timeAgo, formatPrice } from "@/lib/utils";
+import { formatPrice, listingUrl, profileUrl, slugify, timeAgo } from "@/lib/utils";
 import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -67,13 +67,31 @@ export default function ListingDetailPage({ id }: { id: number }) {
     queryFn: () => apiRequest("GET", `/api/listings/${id}`).then(r => r.json()),
   });
 
-  // SEO
+  
+  // Canonical slug redirect — if URL has no slug or wrong slug, replace with correct one
+  // e.g. /groups/14 → /groups/14/polaris-sportsman-500s (no page reload, just history update)
+  useEffect(() => { // slug_redirect
+    if (listing && typeof window !== "undefined") {
+      const correctSlug = slugify(listing.title || "");
+      const path = window.location.pathname;
+      const parts = path.split("/").filter(Boolean);
+      // parts: ["groups", "14"] or ["groups", "14", "some-old-slug"]
+      const hasSlug = parts.length >= 3;
+      const currentSlug = hasSlug ? parts[parts.length - 1] : "";
+      if (correctSlug && currentSlug !== correctSlug) {
+        const canonical = listingUrl(id, listing.title);
+        window.history.replaceState(null, "", canonical);
+      }
+    }
+  }, [listing]);
+
+    // SEO
   const listingTitle = listing ? `${listing.title} — $${(listing.price || 0).toLocaleString()}` : "Listing";
   useSEO({
     title: listingTitle,
     description: listing?.description?.slice(0, 160) || undefined,
     image: (listing?.images as string[] | undefined)?.[0] || null,
-    url: `${window.location.origin}/listing/${id}`,
+    url: `${window.location.origin}${listingUrl(id, listing?.title)}`,
     type: "article",
   });
 
@@ -310,7 +328,7 @@ export default function ListingDetailPage({ id }: { id: number }) {
 
           {/* Seller card */}
           {seller && (
-            <Link href={`/profile/${seller.id}`}>
+            <Link href={profileUrl(seller.id, seller.displayName || seller.username)}>
               <div className="bg-card rounded-xl border border-border p-4 hover:border-primary/40 transition-colors cursor-pointer">
                 <div className="flex items-start gap-3">
                   <Avatar className="w-12 h-12">

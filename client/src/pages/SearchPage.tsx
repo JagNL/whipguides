@@ -17,7 +17,7 @@ import {
   Search, Car, Users, BookOpen, User, MessageSquare,
   Star, MapPin, Clock, Wrench, ChevronRight, TrendingUp, Zap,
 } from "lucide-react";
-import { formatPrice, timeAgo } from "@/lib/utils";
+import { formatPrice, groupUrl, guideUrl, listingUrl, profileUrl, timeAgo } from "@/lib/utils";
 
 const TABS = [
   { key: "all", label: "All" },
@@ -46,7 +46,7 @@ function ListingResult({ l }: { l: any }) {
     ? (l.images[0].startsWith("http") ? l.images[0] : cfUrl ? `${cfUrl}/${l.images[0]}/public` : null)
     : null;
   return (
-    <Link href={`/listing/${l.id}`}>
+    <Link href={listingUrl(l.id, l.title)}>
       <div className="flex gap-3 p-3 rounded-xl hover:bg-secondary transition-colors cursor-pointer group">
         <div className="w-16 h-16 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0">
           {img ? <img src={img} alt={l.title} className="w-full h-full object-cover" /> : <Car className="w-6 h-6 text-muted-foreground/30" />}
@@ -69,7 +69,7 @@ function ListingResult({ l }: { l: any }) {
 // ── Group result card ────────────────────────────────────────
 function GroupResult({ g }: { g: any }) {
   return (
-    <Link href={`/groups/${g.id}`}>
+    <Link href={groupUrl(g.id, g.name)}>
       <div className="flex gap-3 p-3 rounded-xl hover:bg-secondary transition-colors cursor-pointer group">
         <div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0">
           {g.cover_image ? <img src={g.cover_image} alt={g.name} className="w-full h-full object-cover" /> : <Users className="w-5 h-5 text-muted-foreground/30" />}
@@ -91,7 +91,7 @@ function GroupResult({ g }: { g: any }) {
 function GuideResult({ g }: { g: any }) {
   const diffColor = g.difficulty === "beginner" ? "text-emerald-400" : g.difficulty === "intermediate" ? "text-amber-400" : "text-red-400";
   return (
-    <Link href={`/guides/${g.id}`}>
+    <Link href={guideUrl(g.id, g.title)}>
       <div className="flex gap-3 p-3 rounded-xl hover:bg-secondary transition-colors cursor-pointer group">
         <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
           <BookOpen className="w-5 h-5 text-primary" />
@@ -113,7 +113,7 @@ function GuideResult({ g }: { g: any }) {
 // ── User result card ─────────────────────────────────────────
 function UserResult({ u }: { u: any }) {
   return (
-    <Link href={`/profile/${u.id}`}>
+    <Link href={profileUrl(u.id, u.display_name || u.username)}>
       <div className="flex gap-3 p-3 rounded-xl hover:bg-secondary transition-colors cursor-pointer group">
         <Avatar className="w-10 h-10 shrink-0">
           <AvatarImage src={u.avatar} />
@@ -140,7 +140,7 @@ function UserResult({ u }: { u: any }) {
 // ── Post result card ─────────────────────────────────────────
 function PostResult({ p }: { p: any }) {
   return (
-    <Link href={`/groups/${p.group_id}`}>
+    <Link href={groupUrl(p.group_id, p.group_name)}>
       <div className="flex gap-3 p-3 rounded-xl hover:bg-secondary transition-colors cursor-pointer group">
         <Avatar className="w-8 h-8 shrink-0 mt-0.5">
           <AvatarImage src={p.author?.avatar} />

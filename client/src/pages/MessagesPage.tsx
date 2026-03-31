@@ -15,7 +15,7 @@ import {
   Star, MapPin, Clock, Car, Tag, ChevronRight, DollarSign,
   CheckCircle2, XCircle, AlertCircle, User,
 } from "lucide-react";
-import { timeAgo, formatPrice, cn } from "@/lib/utils";
+import { cn, formatPrice, profileUrl, timeAgo } from "@/lib/utils";
 import { useCfUrl, useAppConfig } from "@/hooks/use-cf-url";
 
 // Realtime client is initialised lazily per-conversation using config from /api/config
@@ -471,7 +471,7 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <button
-                      onClick={() => navigate(`/profile/${otherUser?.id}`)}
+                      onClick={() => navigate(profileUrl(otherUser?.id, otherUser?.displayName || otherUser?.username))}
                       className="font-semibold text-sm hover:text-primary transition-colors"
                     >
                       {otherUser?.displayName}
@@ -493,7 +493,7 @@ export default function MessagesPage({ threadUserId }: { threadUserId?: number }
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => navigate(`/profile/${otherUser?.id}`)}
+                  onClick={() => navigate(profileUrl(otherUser?.id, otherUser?.displayName || otherUser?.username))}
                   className="gap-1.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
                   data-testid="button-view-profile"
                 >

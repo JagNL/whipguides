@@ -13,6 +13,7 @@ import { useAppConfig } from "@/hooks/use-cf-url";
 import { useAuth } from "@/hooks/use-auth";
 import ImageUploader from "@/components/ImageUploader";
 import LocationPicker from "@/components/LocationPicker";
+import { listingUrl } from "@/lib/utils";
 import {
   DollarSign, MapPin, Tag, Gauge, CheckSquare, Wrench, Package,
   Car, ChevronRight, ChevronLeft, Camera, Sparkles,
@@ -164,7 +165,7 @@ export default function CreateListingPage() {
     onSuccess: (listing) => {
       queryClient.invalidateQueries({ queryKey: ["/api/listings"] });
       toast({ title: "Listing posted!", description: "Your item is now live." });
-      navigate(`/listing/${listing.id}`);
+      navigate(listingUrl(listing.id, listing.title));
     },
     onError: (e: any) => toast({ title: "Error", description: e.message || "Failed to post listing.", variant: "destructive" }),
   });

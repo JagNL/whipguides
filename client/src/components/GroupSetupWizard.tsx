@@ -14,6 +14,7 @@ import { AvatarUploader } from "@/components/ImageUploader";
 import ImageUploader from "@/components/ImageUploader";
 import { useCfUrl, resolveImageUrl } from "@/hooks/use-cf-url";
 import { useToast } from "@/hooks/use-toast";
+import { groupUrl } from "@/lib/utils";
 import {
   ChevronRight, ChevronLeft, CheckCircle2, Image, Shield,
   UserPlus, Rocket, Trash2, Plus, Users, Copy, X, Search,
@@ -221,7 +222,7 @@ function InviteStep({
       apiRequest("POST", `/api/groups/${groupId}/join`, { message: `You've been invited to join ${groupName}!` }).then(r => r.json()),
   });
 
-  const shareLink = `${window.location.origin}/groups/${groupId}`;
+  const shareLink = `${window.location.origin}${groupUrl(groupId, groupName)}`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(shareLink).then(() =>
@@ -525,7 +526,7 @@ export function GroupSetupWizard({ group, open, onClose }: GroupSetupWizardProps
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
       toast({ title: `${group.name} is live!`, description: "Your group is ready for members." });
       onClose();
-      navigate(`/groups/${group.id}`);
+      navigate(groupUrl(group.id, group.name));
     },
     onError: () => toast({ title: "Couldn't save setup", variant: "destructive" }),
   });

@@ -34,7 +34,7 @@ import {
   ImageIcon, BookOpen, Tag, X, Loader2,
   ExternalLink, Globe,
 } from "lucide-react";
-import { timeAgo } from "@/lib/utils";
+import { groupUrl, guideUrl, profileUrl, timeAgo } from "@/lib/utils";
 import { PostImageGrid } from "@/components/ImageLightbox";
 
 // ─── Reaction system ──────────────────────────────────────────
@@ -255,7 +255,7 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
       {/* Header */}
       <div className="px-4 pt-4 pb-3 flex items-start justify-between">
         <div className="flex items-center gap-3 min-w-0">
-          <Link href={`/profile/${post.author?.id}`}>
+          <Link href={profileUrl(post.author?.id, post.author?.displayName || post.author?.username)}>
             <Avatar className="w-10 h-10 shrink-0 cursor-pointer hover:opacity-90 transition-opacity">
               <AvatarImage src={authorAvatar} />
               <AvatarFallback>{post.author?.username?.[0]?.toUpperCase()}</AvatarFallback>
@@ -263,7 +263,7 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
           </Link>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <Link href={`/profile/${post.author?.id}`}>
+              <Link href={profileUrl(post.author?.id, post.author?.displayName || post.author?.username)}>
                 <span className="font-semibold text-sm hover:underline cursor-pointer">
                   {post.author?.display_name || post.author?.username}
                 </span>
@@ -285,7 +285,7 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
               )}
               {post.group && !post.business_page && (
                 <>
-                  <Link href={`/groups/${post.group.id}`}>
+                  <Link href={groupUrl(post.group.id, post.group?.name)}>
                     <span className="hover:text-primary hover:underline cursor-pointer font-medium">
                       {post.group.name}
                     </span>
@@ -337,7 +337,7 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
       {/* Guide link — full embed requires fetching the guide object; show a clickable pill instead */}
       {post.guide_id && (
         <div className="px-4 pb-3">
-          <Link href={`/guides/${post.guide_id}`}>
+          <Link href={guideUrl(post.guide_id, post.guide_title)}>
             <div className="flex items-center gap-2 bg-secondary hover:bg-secondary/80 border border-border rounded-xl px-3 py-2.5 cursor-pointer transition-colors">
               <BookOpen className="w-4 h-4 text-primary shrink-0" />
               <span className="text-sm font-medium">View attached guide</span>
@@ -385,7 +385,7 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
           <Share2 className="w-4 h-4" />
           <span>Share</span>
         </button>
-        <Link href={`/groups/${post.group?.id}`}>
+        <Link href={groupUrl(post.group?.id, post.group?.name)}>
           <button className="ml-auto flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-muted/60 transition-colors">
             View in group <ChevronRight className="w-3 h-3" />
           </button>
@@ -610,7 +610,7 @@ function FeedSidebar({ myGroups }: { myGroups: any[] }) {
         ) : (
           <div className="space-y-1.5">
             {myGroups.slice(0, 8).map(g => (
-              <Link key={g.id} href={`/groups/${g.id}`}>
+              <Link key={g.id} href={groupUrl(g.id, g.name)}>
                 <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors cursor-pointer group">
                   <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center shrink-0 text-xs font-bold text-primary overflow-hidden">
                     {(g.avatar || g.coverImage) ? (

@@ -5,6 +5,7 @@
 import { Link } from "wouter";
 import { useCfUrl } from "@/hooks/use-cf-url";
 import { BookOpen, Clock, Wrench, ChevronRight, Car } from "lucide-react";
+import { guideUrl } from "@/lib/utils";
 
 interface GuideEmbedCardProps {
   guide: {
@@ -113,7 +114,7 @@ export function GuideEmbedCard({ guide, clickable = true }: GuideEmbedCardProps)
   );
 
   if (clickable) {
-    return <Link href={`/guides/${guide.id}`}>{wrapper}</Link>;
+    return <Link href={guideUrl(guide.id, guide.title)}>{wrapper}</Link>;
   }
   return wrapper;
 }

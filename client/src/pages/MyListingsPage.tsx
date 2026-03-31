@@ -18,7 +18,7 @@ import {
   AlertTriangle, Zap, BarChart3, Tag, TrendingUp,
   Pencil, Trash2, ChevronRight, Timer,
 } from "lucide-react";
-import { timeAgo, formatPrice } from "@/lib/utils";
+import { formatPrice, listingUrl, timeAgo } from "@/lib/utils";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
   AlertDialogContent, AlertDialogDescription,
@@ -101,7 +101,7 @@ function ListingRow({
     <div className={`bg-card border rounded-xl overflow-hidden transition-all ${urgentExpiry ? "border-destructive/40" : "border-border"}`}>
       <div className="flex gap-3 p-3">
         {/* Thumbnail */}
-        <Link href={`/listing/${listing.id}`}>
+        <Link href={listingUrl(listing.id, listing.title)}>
           <div className="w-20 h-16 sm:w-24 sm:h-20 rounded-lg overflow-hidden bg-muted/30 shrink-0 cursor-pointer">
             {thumb
               ? <img src={thumb} alt={listing.title} className="w-full h-full object-cover hover:scale-105 transition-transform" />
@@ -113,7 +113,7 @@ function ListingRow({
         {/* Info */}
         <div className="flex-1 min-w-0 space-y-1.5">
           <div className="flex items-start justify-between gap-2">
-            <Link href={`/listing/${listing.id}`}>
+            <Link href={listingUrl(listing.id, listing.title)}>
               <h3 className="font-semibold text-sm leading-snug hover:text-primary transition-colors cursor-pointer line-clamp-2">
                 {listing.title}
               </h3>
@@ -166,7 +166,7 @@ function ListingRow({
               onClick={() => setShowSoldConfirm(true)} disabled={isMarkingSold}>
               <CheckCircle2 className="w-3 h-3" /> Mark Sold
             </Button>
-            <Link href={`/listing/${listing.id}`}>
+            <Link href={listingUrl(listing.id, listing.title)}>
               <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5 text-muted-foreground">
                 <Pencil className="w-3 h-3" /> Edit
               </Button>

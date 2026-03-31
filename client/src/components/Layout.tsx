@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { AuthModal } from "@/components/AuthModal";
 import { MFAChallenge } from "@/components/MFAChallenge";
 import { useToast } from "@/hooks/use-toast";
+import { profileUrl } from "@/lib/utils";
 
 // ─── Logo ────────────────────────────────────────────────────
 function WhipGuidesLogo({ size = 32 }: { size?: number }) {
@@ -210,7 +211,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     )}
                   </div>
                   <DropdownMenuItem asChild>
-                    <Link href={`/profile/${user.id}`} className="flex items-center gap-2 cursor-pointer">
+                    <Link href={profileUrl(user.id, user.displayName || user.username)} className="flex items-center gap-2 cursor-pointer">
                       <User className="w-4 h-4" /> My Profile
                     </Link>
                   </DropdownMenuItem>
@@ -300,7 +301,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             ))}
             {isAuthenticated ? (
               <>
-                <Link href={`/profile/${user?.id}`} onClick={() => setMobileMenuOpen(false)}>
+                <Link href={profileUrl(user?.id, user?.displayName || user?.username)} onClick={() => setMobileMenuOpen(false)}>
                   <Button variant="ghost" className="w-full justify-start gap-2">
                     <User className="w-4 h-4" /> My Profile
                   </Button>

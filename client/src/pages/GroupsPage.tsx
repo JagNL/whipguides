@@ -15,6 +15,7 @@ import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { GroupSetupWizard } from "@/components/GroupSetupWizard";
+import { groupUrl } from "@/lib/utils";
 import {
   Users, Lock, Plus, TrendingUp, Loader2, Search,
   X, Sparkles, ChevronRight, BookOpen,
@@ -87,7 +88,7 @@ function recordSearch(term: string) {
 function GroupCard({ group, compact = false }: { group: any; compact?: boolean }) {
   if (compact) {
     return (
-      <Link href={`/groups/${group.id}`}>
+      <Link href={groupUrl(group.id, group.name)}>
         <div
           className="flex items-center gap-3 p-3 rounded-xl hover:bg-secondary transition-colors cursor-pointer group border border-border hover:border-primary/30"
           data-testid={`card-group-compact-${group.id}`}
@@ -115,7 +116,7 @@ function GroupCard({ group, compact = false }: { group: any; compact?: boolean }
   }
 
   return (
-    <Link href={`/groups/${group.id}`} className="block h-full">
+    <Link href={groupUrl(group.id, group.name)} className="block h-full">
       {/* flex flex-col h-full ensures every card stretches to the tallest in its row */}
       <div
         className="bg-card rounded-xl border border-border overflow-hidden hover-elevate cursor-pointer group transition-colors hover:border-primary/40 flex flex-col h-full"
@@ -184,7 +185,7 @@ function SearchDropdown({ results, onClose }: { results: any[]; onClose: () => v
   return (
     <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden max-h-80 overflow-y-auto">
       {results.map((group: any) => (
-        <Link key={group.id} href={`/groups/${group.id}`}>
+        <Link key={group.id} href={groupUrl(group.id, group.name)}>
           <div
             className="flex items-center gap-3 px-4 py-3 hover:bg-secondary transition-colors cursor-pointer border-b border-border last:border-0"
             onClick={onClose}
@@ -462,7 +463,7 @@ export default function GroupsPage() {
               </h3>
               <div className="space-y-2">
                 {myGroups.slice(0, 5).map((group: any) => (
-                  <Link key={group.id} href={`/groups/${group.id}`}>
+                  <Link key={group.id} href={groupUrl(group.id, group.name)}>
                     <div className="flex items-center gap-2.5 py-1.5 hover:opacity-80 transition-opacity cursor-pointer">
                       <div className="w-8 h-8 rounded-lg overflow-hidden bg-secondary shrink-0">
                         {group.coverImage
@@ -500,7 +501,7 @@ export default function GroupsPage() {
               </p>
               <div className="space-y-2">
                 {suggestedNotJoined.map((group: any) => (
-                  <Link key={group.id} href={`/groups/${group.id}`}>
+                  <Link key={group.id} href={groupUrl(group.id, group.name)}>
                     <div className="flex items-center gap-2.5 py-2 border-b border-border last:border-0 hover:opacity-80 transition-opacity cursor-pointer group">
                       <div className="w-9 h-9 rounded-lg overflow-hidden bg-secondary shrink-0">
                         {group.coverImage

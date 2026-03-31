@@ -17,6 +17,7 @@ import {
 import { useCfUrl } from "@/hooks/use-cf-url";
 import type { Guide } from "@/../../server/storage";
 import { GUIDE_VERTICALS } from "@/lib/guide-verticals";
+import { guideUrl } from "@/lib/utils";
 
 const DIFFICULTIES = [
   { value: "beginner", label: "Beginner", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
@@ -66,7 +67,7 @@ function GuideCard({ guide }: { guide: any }) {
   const coverSrc = guide.coverImageId && cfUrl ? `${cfUrl}/${guide.coverImageId}/public` : null;
 
   return (
-    <Link href={`/guides/${guide.id}`}>
+    <Link href={guideUrl(guide.id, guide.title)}>
       <div
         data-testid={`card-guide-${guide.id}`}
         className="group bg-card border border-border rounded-xl overflow-hidden hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 transition-all cursor-pointer"

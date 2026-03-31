@@ -23,6 +23,7 @@ import {
   EmbedBadge, VERTICAL_ICONS,
 } from "@/components/CreateGuideSteps";
 import { useCfUrl } from "@/hooks/use-cf-url";
+import { guideUrl } from "@/lib/utils";
 
 const STEPS_LABELS = [
   { label: "Category", icon: Layers },
@@ -139,7 +140,7 @@ export default function CreateGuidePage() {
     onSuccess: (guide) => {
       queryClient.invalidateQueries({ queryKey: ["/api/guides"] });
       toast({ title: "Guide published!", description: "Your guide is now live." });
-      navigate(`/guides/${guide.id}`);
+      navigate(guideUrl(guide.id, guide.title));
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });

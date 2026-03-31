@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { timeAgo, formatPrice } from "@/lib/utils";
+import { formatPrice, listingUrl, timeAgo } from "@/lib/utils";
 
 interface ListingCardProps {
   listing: any;
@@ -162,7 +162,7 @@ export default function ListingCard({ listing, compact = false }: ListingCardPro
 
   if (compact) {
     return (
-      <Link href={`/listing/${listing.id}`}>
+      <Link href={listingUrl(listing.id, listing.title)}>
         <div className="bg-card rounded-lg border border-border overflow-hidden hover:border-primary/30 transition-colors cursor-pointer group" data-testid={`card-listing-compact-${listing.id}`}>
           <div className="aspect-[4/3] overflow-hidden bg-secondary">
             {img && <img src={img} alt={listing.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />}
@@ -182,7 +182,7 @@ export default function ListingCard({ listing, compact = false }: ListingCardPro
   return (
     <div className="listing-card group" data-testid={`card-listing-${listing.id}`}>
       {/* Image */}
-      <Link href={`/listing/${listing.id}`}>
+      <Link href={listingUrl(listing.id, listing.title)}>
         <div className="relative aspect-[4/3] overflow-hidden bg-secondary">
           {img && <img src={img} alt={listing.title} className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" loading="lazy" />}
           {listing.featured && (
@@ -199,7 +199,7 @@ export default function ListingCard({ listing, compact = false }: ListingCardPro
       </Link>
 
       {/* Content */}
-      <Link href={`/listing/${listing.id}`}>
+      <Link href={listingUrl(listing.id, listing.title)}>
         <div className="p-3 space-y-2">
           <div className="flex items-start justify-between gap-2">
             <span className="text-xl font-extrabold text-display text-foreground">{formatPrice(listing.price)}</span>
