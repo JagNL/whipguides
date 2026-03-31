@@ -18,7 +18,7 @@ import { GroupSetupWizard } from "@/components/GroupSetupWizard";
 import { groupUrl } from "@/lib/utils";
 import {
   Users, Lock, Plus, TrendingUp, Loader2, Search,
-  X, Sparkles, ChevronRight, BookOpen,
+  X, Sparkles, ChevronRight, BookOpen, ShieldCheck, CheckCircle2,
 } from "lucide-react";
 
 const VERTICALS_ROW = ["All", "Automotive", "Tech & AI", "Music", "Maker", "Outdoors", "Firearms", "Collectibles", "Powersports", "General"];
@@ -159,15 +159,24 @@ function GroupCard({ group, compact = false }: { group: any; compact?: boolean }
                 <TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts
               </span>
             </div>
-            <Button
-              size="sm" variant="outline" className="text-xs h-7 px-3 gap-1"
-              data-testid={`button-join-group-${group.id}`}
-              onClick={e => e.preventDefault()}
-            >
-              {/* isMember covers owner, admin, and member roles — always show View */}
-              {(group.isMember || !group.private) ? null : <Lock className="w-3 h-3" />}
-              {group.isMember || !group.private ? "View" : "Request"}
-            </Button>
+            {/* Membership status pill — only shown when user has a relationship to this group */}
+            {group.memberRole === "owner" ? (
+              <span className="flex items-center gap-1 text-[11px] font-semibold text-primary">
+                <ShieldCheck className="w-3.5 h-3.5" /> Owner
+              </span>
+            ) : group.memberRole === "admin" ? (
+              <span className="flex items-center gap-1 text-[11px] font-semibold text-blue-400">
+                <ShieldCheck className="w-3.5 h-3.5" /> Admin
+              </span>
+            ) : group.memberRole === "member" ? (
+              <span className="flex items-center gap-1 text-[11px] font-medium text-emerald-400">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Joined
+              </span>
+            ) : group.private ? (
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Lock className="w-3 h-3" /> Private
+              </span>
+            ) : null}
           </div>
         </div>
       </div>

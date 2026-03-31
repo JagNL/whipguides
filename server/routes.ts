@@ -419,24 +419,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const currentUser = (req as any).currentUser;
     const groups = await storage.listGroups(category as string);
 
-    // If the user is logged in, batch-fetch their memberships so the card
-    // can show "View" instead of "Request" for groups they already belong to.
-    let memberGroupIds = new Set<number>();
+    // Batch-fetch the current user's memberships (group_id + role) in one query
+    const membershipMap = new Map<number, string>(); // group_id → role
     if (currentUser) {
       const { data: memberships } = await supabaseAdminForRoutes
         .from("group_members")
-        .select("group_id")
+        .select("group_id, role")
         .eq("user_id", currentUser.id);
-      memberGroupIds = new Set((memberships || []).map((m: any) => m.group_id));
+      for (const m of memberships || []) membershipMap.set(m.group_id, m.role);
     }
 
     const enriched = await Promise.all(groups.map(async g => {
-      // isMember: true when user is in group_members OR is the owner
-      // (owner check is a fallback for groups created before the auto-insert was added)
-      const isMember = memberGroupIds.has(g.id) || (currentUser?.id === g.ownerId);
+      const isOwner = currentUser?.id === g.ownerId;
+      const dbRole = membershipMap.get(g.id);
+      const isMember = !!dbRole || isOwner;
+      // Derive display role: owner > admin > member
+      const memberRole: string | null = isOwner
+        ? "owner"
+        : (dbRole ?? null);
 
-      // Self-heal: if the owner isn't in group_members yet, insert them now (fire & forget)
-      if (currentUser?.id === g.ownerId && !memberGroupIds.has(g.id)) {
+      // Self-heal: owner exists in groups table but missing from group_members (pre-auto-insert groups)
+      if (isOwner && !dbRole) {
         supabaseAdminForRoutes
           .from("group_members")
           .upsert({ user_id: g.ownerId, group_id: g.id, role: "owner" }, { onConflict: "user_id,group_id" })
@@ -447,6 +450,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ...g,
         owner: await storage.getUser(g.ownerId),
         isMember,
+        memberRole, // "owner" | "admin" | "member" | null
       };
     }));
     return res.json(enriched);
