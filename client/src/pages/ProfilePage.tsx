@@ -600,20 +600,13 @@ export default function ProfilePage({ id }: { id: number }) {
       <div className="relative h-36 rounded-t-xl overflow-hidden bg-gradient-to-br from-primary/20 via-primary/5 to-secondary">
         {coverSrc && <img src={coverSrc} alt="" className="w-full h-full object-cover" />}
         <div className="absolute inset-0 bg-gradient-to-t from-background/60 to-transparent" />
+        {/* Cover hover hint — subtle camera icon overlay */}
         {isOwnProfile && (
-          <label className="absolute bottom-2 right-2 cursor-pointer bg-background/70 hover:bg-background/90 px-2 py-1 rounded-lg text-xs flex items-center gap-1 transition-colors">
-            <ImageIcon className="w-3.5 h-3.5" /> Change cover
-            <input type="file" accept="image/*" className="hidden" onChange={async e => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              const reader = new FileReader();
-              reader.onload = ev => {
-                setEditCoverPreview(ev.target?.result as string);
-                setEditCoverId("pending");
-              };
-              reader.readAsDataURL(file);
-            }} />
-          </label>
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/20 rounded-t-xl pointer-events-none">
+            <div className="flex items-center gap-1.5 text-white text-xs font-medium bg-black/50 px-3 py-1.5 rounded-full">
+              <ImageIcon className="w-3.5 h-3.5" /> Click below to change cover
+            </div>
+          </div>
         )}
       </div>
 
@@ -661,32 +654,48 @@ export default function ProfilePage({ id }: { id: number }) {
                   )}
                 </div>
               </div>
-              <div className="flex gap-2 flex-wrap">
-                {isOwnProfile ? (
-                  <>
-                    <Button variant="outline" className="gap-2 shrink-0" onClick={openEdit} data-testid="button-edit-profile">
-                      <Pencil className="w-4 h-4" /> Edit Profile
+              {/* Action buttons — own profile vs. other user */}
+              {isOwnProfile ? (
+                <div className="flex flex-col gap-2 items-end shrink-0">
+                  {/* Row 1: primary actions */}
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={openEdit} data-testid="button-edit-profile">
+                      <Pencil className="w-3.5 h-3.5" /> Edit Profile
                     </Button>
                     {!user.creator_mode && (
-                      <Button variant="outline" className="gap-2 shrink-0 border-primary/40 text-primary hover:bg-primary/10"
+                      <Button variant="outline" size="sm" className="gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
                         onClick={() => creatorModeMut.mutate()} disabled={creatorModeMut.isPending}
                         data-testid="btn-activate-creator">
-                        {creatorModeMut.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Activate Creator Page"}
+                        {creatorModeMut.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <><Star className="w-3.5 h-3.5" /> Creator Page</>}
                       </Button>
                     )}
-                  </>
-                ) : (
-                  <div className="flex gap-2">
-                    <FollowButton targetId={id} />
-                    <Button className="gap-2 shrink-0" data-testid="button-message-user"
-                      onClick={() => { if (!currentUser) { toast({ title: "Sign in required" }); return; } messageUser(); }}
-                      disabled={messagingUser}>
-                      <MessageSquare className="w-4 h-4" /> {messagingUser ? "Opening..." : "Message"}
-                    </Button>
-                    <ReportButton targetType="user" targetId={id} iconOnly className="p-2 h-9 w-9 border border-border rounded-lg flex items-center justify-center hover:bg-muted/60" />
                   </div>
-                )}
-              </div>
+                  {/* Row 2: secondary — change cover */}
+                  <label className="cursor-pointer text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
+                    <ImageIcon className="w-3.5 h-3.5" /> Change cover photo
+                    <input type="file" accept="image/*" className="hidden" onChange={async e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = ev => {
+                        setEditCoverPreview(ev.target?.result as string);
+                        setEditCoverId("pending");
+                      };
+                      reader.readAsDataURL(file);
+                    }} />
+                  </label>
+                </div>
+              ) : (
+                <div className="flex gap-2 shrink-0">
+                  <FollowButton targetId={id} />
+                  <Button size="sm" className="gap-1.5 shrink-0" data-testid="button-message-user"
+                    onClick={() => { if (!currentUser) { toast({ title: "Sign in required" }); return; } messageUser(); }}
+                    disabled={messagingUser}>
+                    <MessageSquare className="w-3.5 h-3.5" /> {messagingUser ? "Opening..." : "Message"}
+                  </Button>
+                  <ReportButton targetType="user" targetId={id} iconOnly className="p-2 h-8 w-8 border border-border rounded-lg flex items-center justify-center hover:bg-muted/60" />
+                </div>
+              )}
             </div>
 
             {user.bio && <p className="text-sm text-muted-foreground mt-3 border-t border-border pt-3">{user.bio}</p>}
