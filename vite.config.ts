@@ -30,7 +30,7 @@ export default defineConfig({
     },
   },
   root: path.resolve(import.meta.dirname, "client"),
-  base: "./",
+  base: "/",
   define: {
     // Stub out storage globals inside supabase-js so the bundle passes
     // sandboxed-iframe checks. Our auth hook uses in-memory sessions.
