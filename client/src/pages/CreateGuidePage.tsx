@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -67,14 +67,15 @@ const EMPTY_STEP: Step = {
   title: "", description: "", imageUrls: [], annotations: [], tools: [], estimatedTime: "", embedUrl: "",
 };
 
-export default function CreateGuidePage() {
+export default function CreateGuidePage({ guideId }: { guideId?: number }) {
+  const isEditMode = !!guideId;
   const [, navigate] = useLocation();
   const { isAuthenticated } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const cfUrl = useCfUrl();
 
-  const [activeStep, setActiveStep] = useState(0);
+  const [activeStep, setActiveStep] = useState(isEditMode ? 2 : 0); // edit starts at Details
   const [form, setForm] = useState<FormData>({
     vertical: "", subjectData: {},
     title: "", description: "", difficulty: "beginner", timeEstimate: "",
@@ -83,10 +84,52 @@ export default function CreateGuidePage() {
     steps: [{ ...EMPTY_STEP }],
     seriesId: null, newSeriesTitle: "", businessPageId: null,
   });
+  const [formReady, setFormReady] = useState(!isEditMode); // false until existing guide loads
   const [newTool, setNewTool] = useState("");
   const [newPart, setNewPart] = useState({ name: "", link: "", price: "" });
   const [annotating, setAnnotating] = useState<{ stepIdx: number; imageUrl: string } | null>(null);
   const [createSeries, setCreateSeries] = useState(false);
+
+  // ── Edit mode: fetch existing guide and pre-populate form ──
+  const { data: existingGuide } = useQuery<any>({
+    queryKey: ["/api/guides", guideId],
+    queryFn: () => apiRequest("GET", `/api/guides/${guideId}`).then(r => r.json()),
+    enabled: isEditMode,
+  });
+
+  useEffect(() => {
+    if (!existingGuide) return;
+    const g = existingGuide as any;
+    setForm({
+      vertical: g.vertical || "automotive",
+      subjectData: g.subjectData || {},
+      title: g.title || "",
+      description: g.description || "",
+      difficulty: g.difficulty || "beginner",
+      timeEstimate: String(g.timeEstimate || ""),
+      category: g.category || "",
+      tools: Array.isArray(g.tools) ? g.tools : [],
+      parts: Array.isArray(g.parts) ? g.parts : [],
+      coverImageId: g.coverImageId || "",
+      headerEmbedUrl: g.headerEmbedUrl || "",
+      tags: Array.isArray(g.tags) ? g.tags.join(", ") : (g.tags || ""),
+      steps: Array.isArray(g.steps) && g.steps.length > 0
+        ? g.steps.map((s: any) => ({
+            title: s.title || "",
+            description: s.description || "",
+            imageUrls: Array.isArray(s.imageUrls) ? s.imageUrls : [],
+            annotations: Array.isArray(s.annotations) ? s.annotations : [],
+            tools: Array.isArray(s.tools) ? s.tools : [],
+            estimatedTime: s.estimatedTime || "",
+            embedUrl: s.embedUrl || "",
+          }))
+        : [{ ...EMPTY_STEP }],
+      seriesId: g.seriesId || null,
+      newSeriesTitle: "",
+      businessPageId: g.businessPageId || null,
+    });
+    setFormReady(true);
+  }, [existingGuide]);
 
   const selectedVertical = GUIDE_VERTICALS.find(v => v.key === form.vertical);
 
@@ -114,6 +157,17 @@ export default function CreateGuidePage() {
     );
   }
 
+  // Edit mode: wait for existing guide to load before rendering the form
+  if (isEditMode && !formReady) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
+        <div className="h-8 w-48 bg-secondary rounded-lg animate-pulse" />
+        <div className="h-64 bg-secondary rounded-xl animate-pulse" />
+        <div className="h-32 bg-secondary rounded-xl animate-pulse" />
+      </div>
+    );
+  }
+
   const submitMutation = useMutation({
     mutationFn: async () => {
       let seriesId = form.seriesId;
@@ -121,7 +175,7 @@ export default function CreateGuidePage() {
         const s = await apiRequest("POST", "/api/guide-series", { title: form.newSeriesTitle.trim() }).then(r => r.json());
         seriesId = s.id;
       }
-      return apiRequest("POST", "/api/guides", {
+      const payload = {
         title: form.title, description: form.description,
         vertical: form.vertical, subjectData: form.subjectData,
         vehicleMake: form.subjectData.make ?? "",
@@ -135,23 +189,24 @@ export default function CreateGuidePage() {
         headerEmbedUrl: form.headerEmbedUrl || null,
         tags: form.tags ? form.tags.split(",").map(t => t.trim()).filter(Boolean) : [],
         seriesId, businessPageId: form.businessPageId,
-      }).then(r => r.json());
+      };
+      // PATCH for edit, POST for new
+      if (isEditMode) {
+        return apiRequest("PATCH", `/api/guides/${guideId}`, payload).then(r => r.json());
+      }
+      return apiRequest("POST", "/api/guides", payload).then(r => r.json());
     },
     onSuccess: (guide) => {
       queryClient.invalidateQueries({ queryKey: ["/api/guides"] });
-      // Pre-populate the cache so GuideDetailPage loads instantly with no blank flash
-      if (guide?.id) {
-        queryClient.setQueryData(["/api/guides", guide.id], guide);
-      }
-      toast({ title: "Guide published!", description: "Your guide is now live." });
-      // Guard: if guide.id is missing (unexpected server error shape), go to guides list
-      if (!guide?.id) {
-        navigate("/guides");
-        return;
-      }
+      if (guide?.id) queryClient.setQueryData(["/api/guides", guide.id], guide);
+      toast({
+        title: isEditMode ? "Guide updated!" : "Guide published!",
+        description: isEditMode ? "Your changes are live." : "Your guide is now live.",
+      });
+      if (!guide?.id) { navigate("/guides"); return; }
       navigate(guideUrl(guide.id, guide.title));
     },
-    onError: (e: any) => toast({ title: "Couldn't publish guide", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: isEditMode ? "Couldn't save changes" : "Couldn't publish guide", description: e.message, variant: "destructive" }),
   });
 
   const update = <K extends keyof FormData>(key: K, val: FormData[K]) =>
@@ -447,7 +502,7 @@ export default function CreateGuidePage() {
           <ChevronLeft className="w-4 h-4" /> Guides
         </button>
         <span className="text-muted-foreground">/</span>
-        <h1 className="text-display font-extrabold text-xl">Write a Guide</h1>
+        <h1 className="text-display font-extrabold text-xl">{isEditMode ? "Edit Guide" : "Write a Guide"}</h1>
       </div>
 
       {/* Breadcrumb steps — completed steps are clickable to jump back */}
@@ -500,7 +555,9 @@ export default function CreateGuidePage() {
             </Button>
           ) : (
             <Button type="button" onClick={() => submitMutation.mutate()} disabled={submitMutation.isPending} className="gap-2 font-semibold" data-testid="button-publish-guide">
-              {submitMutation.isPending ? "Publishing..." : "Publish Guide"}
+              {submitMutation.isPending
+                ? (isEditMode ? "Saving..." : "Publishing...")
+                : (isEditMode ? "Save Changes" : "Publish Guide")}
             </Button>
           )}
         </div>

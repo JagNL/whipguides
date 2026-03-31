@@ -15,7 +15,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import {
   Heart, Eye, Clock, Wrench, Package, ChevronLeft, BookOpen,
-  Trash2, MessageSquare, Send, CheckCircle2, Share2, Users,
+  Trash2, MessageSquare, Send, CheckCircle2, Share2, Users, Pencil,
   ScanLine, ChevronRight, Circle, DollarSign, BarChart2,
   ThumbsUp, ShieldCheck, Instagram, ExternalLink,
 } from "lucide-react";
@@ -475,10 +475,16 @@ export default function GuideDetailPage({ id }: { id: number }) {
             </Button>
           )}
           {isAuthor && (
-            <Button variant="destructive" size="sm" onClick={() => deleteMutation.mutate()}
-              disabled={deleteMutation.isPending} data-testid="button-delete-guide" className="gap-1.5">
-              <Trash2 className="w-3.5 h-3.5" /> Delete Guide
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => navigate(`/guides/${guide.id}/edit`)}
+                className="gap-1.5" data-testid="button-edit-guide">
+                <Pencil className="w-3.5 h-3.5" /> Edit Guide
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => deleteMutation.mutate()}
+                disabled={deleteMutation.isPending} data-testid="button-delete-guide" className="gap-1.5">
+                <Trash2 className="w-3.5 h-3.5" /> Delete Guide
+              </Button>
+            </div>
           )}
         </div>
       </div>
