@@ -164,8 +164,9 @@ function GroupCard({ group, compact = false }: { group: any; compact?: boolean }
               data-testid={`button-join-group-${group.id}`}
               onClick={e => e.preventDefault()}
             >
-              {group.private && <Lock className="w-3 h-3" />}
-              {group.private ? "Request" : "View"}
+              {/* isMember covers owner, admin, and member roles — always show View */}
+              {(group.isMember || !group.private) ? null : <Lock className="w-3 h-3" />}
+              {group.isMember || !group.private ? "View" : "Request"}
             </Button>
           </div>
         </div>

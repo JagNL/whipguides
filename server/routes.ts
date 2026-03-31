@@ -416,10 +416,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============================================================
   app.get("/api/groups", async (req, res) => {
     const { category } = req.query;
+    const currentUser = (req as any).currentUser;
     const groups = await storage.listGroups(category as string);
+
+    // If the user is logged in, batch-fetch their memberships so the card
+    // can show "View" instead of "Request" for groups they already belong to.
+    let memberGroupIds = new Set<number>();
+    if (currentUser) {
+      const { data: memberships } = await supabaseAdminForRoutes
+        .from("group_members")
+        .select("group_id")
+        .eq("user_id", currentUser.id);
+      memberGroupIds = new Set((memberships || []).map((m: any) => m.group_id));
+    }
+
     const enriched = await Promise.all(groups.map(async g => ({
       ...g,
       owner: await storage.getUser(g.ownerId),
+      // isMember: true when user is already in the group (member, admin, or owner)
+      isMember: memberGroupIds.has(g.id),
     })));
     return res.json(enriched);
   });
