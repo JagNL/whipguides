@@ -1468,8 +1468,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/guides", async (req, res) => {
     const { category, difficulty, search, authorId, vertical, seriesId, businessPageId, groupId, sortBy } = req.query;
 
-    // Smart author search: if a search term matches a username/display_name,
-    // also include guides by those authors (e.g. typing "todd" finds Todd's guides).
+    // Smart author search: if the search term matches any username/display_name,
+    // include guides by those authors alongside keyword matches.
+    let resolvedAuthorIds: number[] | undefined;
     let resolvedAuthorId = authorId ? Number(authorId) : undefined;
     if (search && !resolvedAuthorId) {
       const q = `%${search}%`;
@@ -1477,9 +1478,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .from("users")
         .select("id")
         .or(`username.ilike.${q},display_name.ilike.${q}`);
-      if (matchedAuthors && matchedAuthors.length === 1) {
-        // Only use author match if exactly one author matches — avoids over-broad results
-        resolvedAuthorId = matchedAuthors[0].id;
+      if (matchedAuthors && matchedAuthors.length > 0) {
+        resolvedAuthorIds = matchedAuthors.map((a: any) => a.id);
       }
     }
 
@@ -1488,6 +1488,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       difficulty: difficulty as string | undefined,
       search: search as string | undefined,
       authorId: resolvedAuthorId,
+      authorIds: resolvedAuthorIds,
       vertical: vertical as string | undefined,
       seriesId: seriesId ? Number(seriesId) : undefined,
       businessPageId: businessPageId ? Number(businessPageId) : undefined,

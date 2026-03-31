@@ -1348,7 +1348,7 @@ export class SupabaseStorage implements IStorage {
 
   async listGuides(filters?: {
     category?: string; difficulty?: string; search?: string;
-    authorId?: number; vertical?: string; seriesId?: number;
+    authorId?: number; authorIds?: number[]; vertical?: string; seriesId?: number;
     businessPageId?: number; groupId?: number;
     sortBy?: "quality" | "recent" | "popular";
   }): Promise<Guide[]> {
@@ -1373,15 +1373,24 @@ export class SupabaseStorage implements IStorage {
     if (filters?.groupId) query = query.eq("group_id", filters.groupId);
     if (filters?.search) {
       const s = filters.search;
-      // Wide search: title, description, vehicle fields, tags array, category
-      query = query.or(
+      // Build keyword OR clause
+      const keywordOr =
         `title.ilike.%${s}%,` +
         `description.ilike.%${s}%,` +
         `vehicle_make.ilike.%${s}%,` +
         `vehicle_model.ilike.%${s}%,` +
         `vehicle_year_start.ilike.%${s}%,` +
-        `category.ilike.%${s}%`
-      );
+        `category.ilike.%${s}%`;
+      // If we also matched authors by name, include their guides in the same OR
+      if (filters.authorIds && filters.authorIds.length > 0) {
+        const authorOr = filters.authorIds.map(id => `author_id.eq.${id}`).join(",");
+        query = query.or(`${keywordOr},${authorOr}`);
+      } else {
+        query = query.or(keywordOr);
+      }
+    } else if (filters?.authorIds && filters.authorIds.length > 0) {
+      // No keyword search, but author name matched — filter by those authors
+      query = query.in("author_id", filters.authorIds);
     }
 
     const { data } = await query.limit(100);

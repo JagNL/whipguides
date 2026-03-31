@@ -82,13 +82,19 @@ function GuideSearch({ onSelect }: { onSelect: (guide: any) => void }) {
               onClick={() => { onSelect(guide); setQuery(""); setOpen(false); }}
             >
               <BookOpen className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium line-clamp-1">{guide.title}</p>
                 <p className="text-xs text-muted-foreground">
                   {guide.vehicleYearStart} {guide.vehicleMake} {guide.vehicleModel}
                   {" · "}
                   <span className="capitalize">{guide.difficulty}</span>
                 </p>
+                {guide.author && (
+                  <p className="text-xs text-muted-foreground/70 mt-0.5">
+                    by {guide.author.displayName || guide.author.display_name}
+                    <span className="ml-1 opacity-60">@{guide.author.username}</span>
+                  </p>
+                )}
               </div>
             </button>
           ))}
