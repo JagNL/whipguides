@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { supabaseAdmin as supabaseAdminForRoutes } from "./supabase";
-import { authRouter, requireAuth } from "./auth";
+import { authRouter, requireAuth, optionalAuth } from "./auth";
 import { adminRouter, reportRouter } from "./admin";
 import { adsRouter, adminAdsRouter } from "./ads";
 import { businessRouter } from "./business";
@@ -414,7 +414,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============================================================
   // GROUPS
   // ============================================================
-  app.get("/api/groups", async (req, res) => {
+  app.get("/api/groups", optionalAuth, async (req, res) => {
     const { category } = req.query;
     const currentUser = (req as any).currentUser;
     const groups = await storage.listGroups(category as string);
@@ -1494,7 +1494,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // GET /api/guides/:id — get a single guide
-  app.get("/api/guides/:id", async (req, res) => {
+  app.get("/api/guides/:id", optionalAuth, async (req, res) => {
     const id = Number(req.params.id);
     const currentUser = (req as any).currentUser;
     const guide = await storage.getGuide(id, currentUser?.id);
@@ -1847,7 +1847,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ============================================================
 
   // Record a listing view (fire-and-forget, called from listing detail)
-  app.post("/api/listings/:id/view", async (req, res) => {
+  app.post("/api/listings/:id/view", optionalAuth, async (req, res) => {
     const id = Number(req.params.id);
     const currentUser = (req as any).currentUser;
     const sessionId = req.headers["x-session-id"] as string || undefined;
@@ -1856,7 +1856,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // GET /api/recommendations — personalized feed
-  app.get("/api/recommendations", async (req, res) => {
+  app.get("/api/recommendations", optionalAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
     const sessionId = req.headers["x-session-id"] as string || undefined;
     const excludeIds = req.query.exclude ? (req.query.exclude as string).split(",").map(Number) : [];
@@ -1869,7 +1869,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // GET /api/recently-viewed
-  app.get("/api/recently-viewed", async (req, res) => {
+  app.get("/api/recently-viewed", optionalAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;
     const sessionId = req.headers["x-session-id"] as string || undefined;
     const listings = await (storage as any).getRecentlyViewed(currentUser?.id, sessionId, 8);
@@ -2073,7 +2073,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // GET /api/groups/:id/members — full member list with role, sorted (followed first for auth users)
-  app.get("/api/groups/:id/members", async (req, res) => {
+  app.get("/api/groups/:id/members", optionalAuth, async (req, res) => {
     const groupId = Number(req.params.id);
     const currentUser = (req as any).currentUser;
 
