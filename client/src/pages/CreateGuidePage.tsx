@@ -145,29 +145,7 @@ export default function CreateGuidePage({ guideId }: { guideId?: number }) {
     enabled: activeStep === 4 && isAuthenticated,
   });
 
-  if (!isAuthenticated) {
-    return (
-      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
-        <BookOpen className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-        <p className="font-medium mb-2">Sign in to write a guide</p>
-        <Button variant="ghost" onClick={() => navigate("/guides")} className="gap-2">
-          <ChevronLeft className="w-4 h-4" /> Back to Guides
-        </Button>
-      </div>
-    );
-  }
-
-  // Edit mode: wait for existing guide to load before rendering the form
-  if (isEditMode && !formReady) {
-    return (
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
-        <div className="h-8 w-48 bg-secondary rounded-lg animate-pulse" />
-        <div className="h-64 bg-secondary rounded-xl animate-pulse" />
-        <div className="h-32 bg-secondary rounded-xl animate-pulse" />
-      </div>
-    );
-  }
-
+  // ── ALL HOOKS MUST BE ABOVE EARLY RETURNS (Rules of Hooks) ──
   const submitMutation = useMutation({
     mutationFn: async () => {
       let seriesId = form.seriesId;
@@ -493,6 +471,29 @@ export default function CreateGuidePage({ guideId }: { guideId?: number }) {
   ];
 
   const stepTitle = ["What are you making a guide about?", "Subject Details", "Guide Details", "Steps", "Review & Publish"];
+
+  // ── Early returns AFTER all hooks ───────────────────────────
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-20 text-center">
+        <BookOpen className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
+        <p className="font-medium mb-2">Sign in to write a guide</p>
+        <Button variant="ghost" onClick={() => navigate("/guides")} className="gap-2">
+          <ChevronLeft className="w-4 h-4" /> Back to Guides
+        </Button>
+      </div>
+    );
+  }
+
+  if (isEditMode && !formReady) {
+    return (
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-4">
+        <div className="h-8 w-48 bg-secondary rounded-lg animate-pulse" />
+        <div className="h-64 bg-secondary rounded-xl animate-pulse" />
+        <div className="h-32 bg-secondary rounded-xl animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
