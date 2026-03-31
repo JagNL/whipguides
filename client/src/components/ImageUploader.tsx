@@ -51,7 +51,15 @@ export default function ImageUploader({
     const ids = imgs
       .filter(img => !img.uploading && !img.error)
       // Prefer cdnUrl (full URL) so previews work without needing to reconstruct from key
-      .map(img => img.cdnUrl || img.imageId);
+      .map(img => img.cdnUrl || img.imageId)
+      // Strip any temp IDs or blob URLs — these are session-only and break after reload.
+      // Only persist actual URLs (http/https/data:) or clean imageIds (CF image keys).
+      .filter(url => {
+        if (!url) return false;
+        if (url.startsWith("uploading-")) return false; // temp ID before upload completes
+        if (url.startsWith("blob:")) return false;       // blob URL — only valid this session
+        return true;
+      });
     onChange(ids);
   }, [onChange]);
 

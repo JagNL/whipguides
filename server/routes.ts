@@ -1450,11 +1450,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // GET /api/guides — list guides with optional filters
   app.get("/api/guides", async (req, res) => {
     const { category, difficulty, search, authorId, vertical, seriesId, businessPageId, groupId, sortBy } = req.query;
+
+    // Smart author search: if a search term matches a username/display_name,
+    // also include guides by those authors (e.g. typing "todd" finds Todd's guides).
+    let resolvedAuthorId = authorId ? Number(authorId) : undefined;
+    if (search && !resolvedAuthorId) {
+      const q = `%${search}%`;
+      const { data: matchedAuthors } = await supabaseAdminForRoutes
+        .from("users")
+        .select("id")
+        .or(`username.ilike.${q},display_name.ilike.${q}`);
+      if (matchedAuthors && matchedAuthors.length === 1) {
+        // Only use author match if exactly one author matches — avoids over-broad results
+        resolvedAuthorId = matchedAuthors[0].id;
+      }
+    }
+
     const guides = await storage.listGuides({
       category: category as string | undefined,
       difficulty: difficulty as string | undefined,
       search: search as string | undefined,
-      authorId: authorId ? Number(authorId) : undefined,
+      authorId: resolvedAuthorId,
       vertical: vertical as string | undefined,
       seriesId: seriesId ? Number(seriesId) : undefined,
       businessPageId: businessPageId ? Number(businessPageId) : undefined,

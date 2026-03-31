@@ -594,7 +594,24 @@ export class SupabaseStorage implements IStorage {
     if ((post as any).videoId != null)           insertData.video_id = (post as any).videoId;
     if ((post as any).videoHlsUrl != null)       insertData.video_hls_url = (post as any).videoHlsUrl;
     if ((post as any).videoThumbnailUrl != null) insertData.video_thumbnail_url = (post as any).videoThumbnailUrl;
-    const { data, error } = await supabaseAdmin.from("posts").insert(insertData).select().single();
+
+    let { data, error } = await supabaseAdmin.from("posts").insert(insertData).select().single();
+
+    // Supabase schema cache can get stale after migrations — if a column isn't found,
+    // retry without the optional columns so the post still goes through.
+    if (error && (error.message?.includes("schema cache") || error.message?.includes("column") || error.message?.includes("Could not find"))) {
+      console.warn("[createPost] Schema cache error, retrying without optional columns:", error.message);
+      const fallback: any = {
+        group_id: insertData.group_id,
+        author_id: insertData.author_id,
+        content: insertData.content,
+        images: insertData.images,
+      };
+      const retry = await supabaseAdmin.from("posts").insert(fallback).select().single();
+      data = retry.data;
+      error = retry.error;
+    }
+
     if (error) throw new Error(error.message);
     return this.mapPost(data);
   }
@@ -1145,7 +1162,8 @@ export class SupabaseStorage implements IStorage {
     const [listings, groups, guides, users, posts] = await Promise.all([
       supabaseAdmin.from("listings").select("id,title,price,category,images,condition,location,year,make,model").or(`title.ilike.${q},description.ilike.${q},make.ilike.${q},model.ilike.${q}`).eq("status", "active").limit(6),
       supabaseAdmin.from("groups").select("id,name,description,category,cover_image,member_count").or(`name.ilike.${q},description.ilike.${q}`).limit(6),
-      supabaseAdmin.from("guides").select("id,title,description,difficulty,time_estimate,vehicle_make,vehicle_model,vehicle_year_start,author_id").or(`title.ilike.${q},description.ilike.${q},vehicle_make.ilike.${q},vehicle_model.ilike.${q}`).limit(6),
+      // Wide guide search: title, description, vehicle fields, category, tags
+      supabaseAdmin.from("guides").select("id,title,description,difficulty,time_estimate,vehicle_make,vehicle_model,vehicle_year_start,category,tags,author_id").or(`title.ilike.${q},description.ilike.${q},vehicle_make.ilike.${q},vehicle_model.ilike.${q},category.ilike.${q}`).limit(8),
       supabaseAdmin.from("users").select("id,username,display_name,avatar,location,rating,verified").or(`username.ilike.${q},display_name.ilike.${q}`).limit(6),
       supabaseAdmin.from("posts").select("id,content,group_id,author_id,created_at").ilike("content", `%${query}%`).limit(6),
     ]);
@@ -1344,7 +1362,16 @@ export class SupabaseStorage implements IStorage {
     if (filters?.businessPageId) query = query.eq("business_page_id", filters.businessPageId);
     if (filters?.groupId) query = query.eq("group_id", filters.groupId);
     if (filters?.search) {
-      query = query.or(`title.ilike.%${filters.search}%,description.ilike.%${filters.search}%`);
+      const s = filters.search;
+      // Wide search: title, description, vehicle fields, tags array, category
+      query = query.or(
+        `title.ilike.%${s}%,` +
+        `description.ilike.%${s}%,` +
+        `vehicle_make.ilike.%${s}%,` +
+        `vehicle_model.ilike.%${s}%,` +
+        `vehicle_year_start.ilike.%${s}%,` +
+        `category.ilike.%${s}%`
+      );
     }
 
     const { data } = await query.limit(100);
