@@ -485,25 +485,39 @@ export default function ProfilePage({ id }: { id: number }) {
 
   const { mutate: saveProfile, isPending: isSaving } = useMutation({
     mutationFn: async () => {
-      await apiRequest("PATCH", `/api/users/${id}`, {
-        displayName: editDisplayName, bio: editBio, location: editLocation,
-        ...(editAvatarId ? { avatar: editAvatarPreview || editAvatarId } : {}),
-        ...(editCoverId ? { cover_image: editCoverPreview || editCoverId } : {}),
-      });
-      await apiRequest("PATCH", "/api/community/profile", {
-        website: editWebsite, youtube: editYoutube, instagram: editInstagram,
-        tiktok: editTiktok, x: editX, github: editGithub, twitch: editTwitch,
-        patreon: editPatreon, facebook: editFacebook,
-        specialist_tags: editSpecialistTags.split(",").map(t => t.trim()).filter(Boolean),
-      });
+      // Two parallel updates: users table (basic fields + cover) and community profile (social/creator fields)
+      await Promise.all([
+        apiRequest("PATCH", `/api/users/${id}`, {
+          displayName: editDisplayName,
+          bio: editBio,
+          location: editLocation,
+          ...(editAvatarId   ? { avatar:      editAvatarPreview  || editAvatarId }  : {}),
+          // cover_image: only send if a new cover was chosen and uploaded
+          ...(editCoverId && editCoverId !== "pending" ? { cover_image: editCoverPreview || editCoverId } : {}),
+        }),
+        // Social links use the DB column names (youtube_handle etc.)
+        apiRequest("PATCH", "/api/community/profile", {
+          website:         editWebsite   || null,
+          youtube_handle:  editYoutube   || null,
+          instagram_handle: editInstagram || null,
+          tiktok_handle:   editTiktok    || null,
+          x_handle:        editX         || null,
+          github_handle:   editGithub    || null,
+          twitch_handle:   editTwitch    || null,
+          patreon_url:     editPatreon   || null,
+          facebook_url:    editFacebook  || null,
+          specialist_tags: editSpecialistTags.split(",").map(t => t.trim()).filter(Boolean),
+        }),
+      ]);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/users", id] });
       refreshUser();
+      setEditCoverId(null); setEditCoverPreview(null);
       setEditOpen(false);
       toast({ title: "Profile updated" });
     },
-    onError: () => toast({ title: "Error saving profile", variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Error saving profile", description: err?.message, variant: "destructive" }),
   });
 
   const creatorModeMut = useMutation({
@@ -652,20 +666,25 @@ export default function ProfilePage({ id }: { id: number }) {
                       </Button>
                     )}
                   </div>
-                  {/* Row 2: secondary — change cover */}
-                  <label className="cursor-pointer text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors">
-                    <ImageIcon className="w-3.5 h-3.5" /> Change cover photo
-                    <input type="file" accept="image/*" className="hidden" onChange={async e => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = ev => {
-                        setEditCoverPreview(ev.target?.result as string);
-                        setEditCoverId("pending");
-                      };
-                      reader.readAsDataURL(file);
-                    }} />
-                  </label>
+                  {/* Row 2: Change cover — crop + real upload + instant save */}
+                  <div className="flex items-center gap-2">
+                    <AvatarUploader
+                      currentUrl={user.cover_image
+                        ? (user.cover_image.startsWith('http') || user.cover_image.startsWith('data:')
+                            ? user.cover_image
+                            : cfBase ? `${cfBase}/${user.cover_image}/public` : null)
+                        : null}
+                      onUpload={async (imgId, cdnUrl) => {
+                        // Upload done — immediately save to DB and refresh
+                        const url = cdnUrl || imgId;
+                        await apiRequest("PATCH", `/api/users/${id}`, { cover_image: url });
+                        qc.invalidateQueries({ queryKey: ["/api/users", id] });
+                        toast({ title: "Cover photo updated" });
+                      }}
+                      size={32}
+                    />
+                    <span className="text-xs text-muted-foreground">Change cover</span>
+                  </div>
                 </div>
               ) : (
                 <div className="flex gap-2 shrink-0">

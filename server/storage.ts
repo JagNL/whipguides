@@ -254,6 +254,21 @@ export class SupabaseStorage implements IStorage {
       siteRole: row.site_role || 'user',
       banned: row.banned || false,
       adminPermissions: row.admin_permissions || {},
+      // Creator / social fields (all on users table via creator-profiles migration)
+      creator_mode:    row.creator_mode    || false,
+      cover_image:     row.cover_image     || null,
+      website:         row.website         || null,
+      youtube:         row.youtube_handle  || null,
+      instagram:       row.instagram_handle || null,
+      tiktok:          row.tiktok_handle   || null,
+      x:               row.x_handle        || null,
+      github:          row.github_handle   || null,
+      twitch:          row.twitch_handle   || null,
+      patreon:         row.patreon_url     || null,
+      facebook:        row.facebook_url    || null,
+      specialist_tags: row.specialist_tags || [],
+      follower_count:  row.follower_count  || 0,
+      following_count: row.following_count || 0,
     } as any;
   }
 
@@ -375,10 +390,12 @@ export class SupabaseStorage implements IStorage {
     // Strict allowlist — only user-editable fields. rating/reviewCount/verified/siteRole
     // are server-only and must never come from a user PATCH request.
     const updates: any = {};
-    if (data.displayName) updates.display_name = data.displayName;
-    if (data.avatar !== undefined) updates.avatar = data.avatar;
-    if (data.bio !== undefined) updates.bio = data.bio;
-    if (data.location !== undefined) updates.location = data.location;
+    if (data.displayName)            updates.display_name = data.displayName;
+    if (data.avatar !== undefined)   updates.avatar       = data.avatar;
+    if (data.bio !== undefined)      updates.bio          = data.bio;
+    if (data.location !== undefined) updates.location     = data.location;
+    // cover_image is user-editable (stored directly on users table)
+    if ((data as any).cover_image !== undefined) updates.cover_image = (data as any).cover_image;
     if (!Object.keys(updates).length) return this.getUser(id);
     const { data: row } = await supabaseAdmin.from("users").update(updates).eq("id", id).select().single();
     return row ? this.mapUser(row) : undefined;
