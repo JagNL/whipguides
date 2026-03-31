@@ -2151,13 +2151,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const followedPageIds: number[] = (bizFollows || []).map((f: any) => f.page_id);
 
       // 4. Query posts from groups + followed users + followed business pages
-      const postSelect = `
-        id, content, images, guide_id, created_at, likes,
-        reaction_counts, share_count, post_type, is_pinned,
-        author:author_id(id, username, display_name, avatar, verified, site_role),
-        group:group_id(id, name, avatar, category, private),
-        business_page:business_page_id(id, name, slug, logo_id, category, verified)
-      `;
+      // Only select columns that exist in the base migration.
+      // Optional columns (guide_id, reaction_counts, etc.) are added via separate migrations
+      // and fetched after the fact to avoid 500s from schema cache misses.
+      const postSelect = [
+        "id", "content", "images", "created_at", "likes",
+        // author join — users table base columns only
+        "author:author_id(id, username, display_name, avatar, verified)",
+        // group join — use cover_image (the actual column name, not avatar)
+        "group:group_id(id, name, cover_image, category, private)",
+      ].join(", ");
 
       if (groupIds.length === 0 && followedIds.length === 0 && followedPageIds.length === 0) {
         // No content sources yet — show recent posts from public groups as discovery
