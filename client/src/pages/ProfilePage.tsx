@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, queryClient as qc0 } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { StarRating } from "@/components/StarRating";
 import ListingCard from "@/components/ListingCard";
-import { AvatarUploader, CoverUploader } from "@/components/ImageUploader";
+import { AvatarUploader, CoverCropModal } from "@/components/ImageUploader";
+import { getToken } from "@/lib/queryClient";
 import ImageUploader from "@/components/ImageUploader";
 import { PostImageGrid } from "@/components/ImageLightbox";
 import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
@@ -393,6 +394,86 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${map[status] || map.active}`}>{status}</span>;
 }
 
+// ── Cover Picker Modal ─────────────────────────────────
+// Opens file picker immediately, then shows crop modal.
+// No inline preview widget — purely a picker + crop flow.
+function CoverPickerModal({
+  currentUrl, onUpload, onClose,
+}: {
+  currentUrl: string | null;
+  onUpload: (imgId: string, cdnUrl: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Auto-open file picker as soon as this mounts
+  useEffect(() => { fileInputRef.current?.click(); }, []);
+
+  const handleFileSelected = (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    setCropSrc(URL.createObjectURL(file));
+  };
+
+  const handleCropConfirm = async (blob: Blob) => {
+    setCropSrc(null);
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, "cover.jpg");
+      formData.append("metadata", JSON.stringify({ type: "cover" }));
+      const token = getToken();
+      const res = await fetch("/api/upload/proxy", {
+        method: "POST", body: formData,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { imageId, cdnUrl } = await res.json();
+      await onUpload(imageId, cdnUrl || URL.createObjectURL(blob));
+      toast({ title: "Cover photo updated" });
+    } catch (err) {
+      toast({ title: "Upload failed", description: "Could not save cover photo.", variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+      onClose();
+    }
+  };
+
+  return (
+    <>
+      {/* Hidden file input — auto-clicked on mount */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,image/heic,image/heif"
+        className="hidden"
+        onChange={e => e.target.files?.[0] && handleFileSelected(e.target.files[0])}
+        onCancel={onClose}  /* user dismissed picker without choosing */
+      />
+      {/* Uploading spinner */}
+      {isUploading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="bg-card rounded-xl p-6 flex items-center gap-3 shadow-2xl">
+            <Loader2 className="w-5 h-5 text-primary animate-spin" />
+            <span className="text-sm font-medium">Saving cover photo…</span>
+          </div>
+        </div>
+      )}
+      {/* Crop modal — landscape 3:1 */}
+      {cropSrc && (
+        <CoverCropModal
+          imageSrc={cropSrc}
+          aspectRatio={3}
+          onConfirm={handleCropConfirm}
+          onClose={onClose}
+        />
+      )}
+    </>
+  );
+}
+
 // ── Main Component ────────────────────────────────────────────
 export default function ProfilePage({ id }: { id: number }) {
   const [activeTab, setActiveTab] = useState<Tab>("listings");
@@ -609,31 +690,17 @@ export default function ProfilePage({ id }: { id: number }) {
         )}
       </div>
 
-      {/* Cover photo change — modal with full rectangular crop/zoom UI */}
+      {/* Cover photo picker — plain file input + CoverCropModal, no preview widget */}
       {changeCoverOpen && (
-        <Dialog open onOpenChange={v => { if (!v) setChangeCoverOpen(false); }}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <ImageIcon className="w-4 h-4 text-primary" /> Change Cover Photo
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              <p className="text-xs text-muted-foreground">Click the image below to pick a new cover photo. Drag and zoom to frame it perfectly.</p>
-              <CoverUploader
-                currentUrl={coverSrc || null}
-                aspectRatio={3}
-                label="Click to upload a cover photo"
-                onUpload={async (imgId, cdnUrl) => {
-                  const url = cdnUrl || imgId;
-                  await apiRequest("PATCH", `/api/users/${id}`, { cover_image: url });
-                  qc.invalidateQueries({ queryKey: ["/api/users", id] });
-                  setChangeCoverOpen(false);
-                }}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
+        <CoverPickerModal
+          currentUrl={coverSrc || null}
+          onUpload={async (_imgId, cdnUrl) => {
+            await apiRequest("PATCH", `/api/users/${id}`, { cover_image: cdnUrl });
+            qc.invalidateQueries({ queryKey: ["/api/users", id] });
+            setChangeCoverOpen(false);
+          }}
+          onClose={() => setChangeCoverOpen(false)}
+        />
       )}
 
       {/* Profile card */}
