@@ -391,7 +391,10 @@ export default function GuideDetailPage({ id }: { id: number }) {
     );
   }
 
-  const coverSrc = guide.coverImageId ? `${cfUrl}/${guide.coverImageId}/public` : null;
+  // Handle both raw R2 imageId and full CDN URLs (legacy guides saved with full URL)
+  const coverSrc = guide.coverImageId
+    ? (guide.coverImageId.startsWith("http") ? guide.coverImageId : `${cfUrl}/${guide.coverImageId}/public`)
+    : null;
   const verticalDef = g.vertical ? GUIDE_VERTICALS.find(v => v.key === g.vertical) : null;
   const VerticalIcon = verticalDef ? (VERTICAL_ICONS[verticalDef.icon] ?? Wrench) : null;
 

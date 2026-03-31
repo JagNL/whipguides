@@ -36,8 +36,8 @@ const difficultyColors: Record<string, string> = {
 
 export function GuideEmbedCard({ guide, clickable = true }: GuideEmbedCardProps) {
   const cfUrl = useCfUrl();
-  const coverSrc = guide.coverImageId && cfUrl
-    ? `${cfUrl}/${guide.coverImageId}/public`
+  const coverSrc = guide.coverImageId
+    ? (guide.coverImageId.startsWith("http") ? guide.coverImageId : cfUrl ? `${cfUrl}/${guide.coverImageId}/public` : null)
     : null;
 
   const year = guide.vehicleYearStart === guide.vehicleYearEnd

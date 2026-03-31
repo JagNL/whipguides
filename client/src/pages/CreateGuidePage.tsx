@@ -176,7 +176,11 @@ export default function CreateGuidePage({ guideId }: { guideId?: number }) {
     },
     onSuccess: (guide) => {
       queryClient.invalidateQueries({ queryKey: ["/api/guides"] });
-      if (guide?.id) queryClient.setQueryData(["/api/guides", guide.id], guide);
+      if (guide?.id) {
+        // Invalidate the detail page cache so cover image + all fields refresh immediately
+        queryClient.invalidateQueries({ queryKey: ["/api/guides", guide.id] });
+        queryClient.setQueryData(["/api/guides", guide.id], guide);
+      }
       toast({
         title: isEditMode ? "Guide updated!" : "Guide published!",
         description: isEditMode ? "Your changes are live." : "Your guide is now live.",
@@ -269,7 +273,7 @@ export default function CreateGuidePage({ guideId }: { guideId?: number }) {
             : null}
           aspectRatio={16 / 9}
           label="Upload cover image"
-          onUpload={(id, previewUrl) => update("coverImageId", previewUrl || id)}
+          onUpload={(id, _previewUrl) => update("coverImageId", id)}
         />
       </div>
       <div className="space-y-1.5">
