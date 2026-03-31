@@ -16,7 +16,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge";
 import {
   Wrench, AlertTriangle, Info, Ruler, Droplets, Settings2,
-  X, Plus, GripVertical, Check, Trash2,
+  X, Plus, GripVertical, Check, Trash2, Copy,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────
@@ -332,6 +332,18 @@ export function AnnotationEditor({
     setActivePin(null);
   }, []);
 
+  // Duplicate a pin — places the copy slightly offset so it’s visually distinct
+  const handleDuplicate = useCallback((ann: Annotation) => {
+    const copy: Annotation = {
+      ...ann,
+      id: uid(),
+      // Offset by ~3% so the copy doesn’t land directly on top
+      x: Math.min(ann.x + 3, 95),
+      y: Math.min(ann.y + 3, 95),
+    };
+    onChange([...annotations, copy]);
+  }, [annotations, onChange]);
+
   const myAnnotations = annotations.filter(a => a.imageUrl === imageUrl);
 
   return (
@@ -426,11 +438,19 @@ export function AnnotationEditor({
                       </div>
                       <div className="flex gap-1 shrink-0">
                         <button type="button" onClick={e => { e.stopPropagation(); startEditPin(ann); }}
-                          className="p-0.5 text-muted-foreground hover:text-foreground">
+                          className="p-0.5 text-muted-foreground hover:text-foreground"
+                          title="Edit pin">
                           <GripVertical className="w-3 h-3" />
                         </button>
+                        {/* Duplicate — copies all fields, ideal for identical fasteners */}
+                        <button type="button" onClick={e => { e.stopPropagation(); handleDuplicate(ann); }}
+                          className="p-0.5 text-muted-foreground hover:text-primary"
+                          title="Duplicate pin (same specs, new position)">
+                          <Copy className="w-3 h-3" />
+                        </button>
                         <button type="button" onClick={e => { e.stopPropagation(); handleDelete(ann.id); }}
-                          className="p-0.5 text-muted-foreground hover:text-destructive">
+                          className="p-0.5 text-muted-foreground hover:text-destructive"
+                          title="Delete pin">
                           <Trash2 className="w-3 h-3" />
                         </button>
                       </div>

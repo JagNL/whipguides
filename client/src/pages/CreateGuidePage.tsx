@@ -139,10 +139,19 @@ export default function CreateGuidePage() {
     },
     onSuccess: (guide) => {
       queryClient.invalidateQueries({ queryKey: ["/api/guides"] });
+      // Pre-populate the cache so GuideDetailPage loads instantly with no blank flash
+      if (guide?.id) {
+        queryClient.setQueryData(["/api/guides", guide.id], guide);
+      }
       toast({ title: "Guide published!", description: "Your guide is now live." });
+      // Guard: if guide.id is missing (unexpected server error shape), go to guides list
+      if (!guide?.id) {
+        navigate("/guides");
+        return;
+      }
       navigate(guideUrl(guide.id, guide.title));
     },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Couldn't publish guide", description: e.message, variant: "destructive" }),
   });
 
   const update = <K extends keyof FormData>(key: K, val: FormData[K]) =>
@@ -332,15 +341,36 @@ export default function CreateGuidePage() {
           <div><span className="text-muted-foreground text-sm">Description:</span><p className="text-sm line-clamp-3">{form.description}</p></div>
         </div>
         <div className="bg-secondary rounded-xl p-5">
-          <h3 className="font-semibold text-sm mb-3">{form.steps.filter(s => s.title).length} Steps</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-sm">{form.steps.filter(s => s.title).length} Steps</h3>
+            <button
+              type="button"
+              onClick={() => setActiveStep(3)}
+              className="text-xs text-primary hover:text-primary/80 font-semibold transition-colors flex items-center gap-1"
+            >
+              <Plus className="w-3 h-3" /> Add / Edit Steps
+            </button>
+          </div>
           <ul className="space-y-1.5">
             {form.steps.filter(s => s.title).map((step, i) => (
-              <li key={i} className="flex items-center gap-2 text-sm">
+              <li key={i}
+                className="flex items-center gap-2 text-sm cursor-pointer hover:text-primary transition-colors"
+                onClick={() => setActiveStep(3)}
+              >
                 <CheckCircle2 className="w-3.5 h-3.5 text-primary shrink-0" />
                 <span>Step {i + 1}: {step.title}</span>
               </li>
             ))}
           </ul>
+          {form.steps.filter(s => s.title).length === 0 && (
+            <button
+              type="button"
+              onClick={() => setActiveStep(3)}
+              className="w-full text-sm text-primary hover:text-primary/80 py-2 border border-dashed border-primary/30 rounded-lg transition-colors"
+            >
+              + Add steps
+            </button>
+          )}
         </div>
         <div className="bg-secondary rounded-xl p-5 space-y-3">
           <h3 className="font-semibold text-sm">Add to a Series <span className="text-muted-foreground font-normal">(optional)</span></h3>
@@ -420,6 +450,7 @@ export default function CreateGuidePage() {
         <h1 className="text-display font-extrabold text-xl">Write a Guide</h1>
       </div>
 
+      {/* Breadcrumb steps — completed steps are clickable to jump back */}
       <div className="flex flex-wrap items-center mb-8 gap-y-2">
         {STEPS_LABELS.map((step, idx) => {
           const Icon = step.icon;
@@ -427,12 +458,21 @@ export default function CreateGuidePage() {
           const isActive = idx === activeStep;
           return (
             <div key={idx} className="flex items-center shrink-0">
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                isActive ? "bg-primary text-primary-foreground" : isDone ? "text-primary" : "text-muted-foreground"
-              }`}>
+              <button
+                type="button"
+                disabled={!isDone && !isActive}
+                onClick={() => isDone && setActiveStep(idx)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  isActive
+                    ? "bg-primary text-primary-foreground"
+                    : isDone
+                      ? "text-primary hover:bg-primary/10 cursor-pointer"
+                      : "text-muted-foreground cursor-default"
+                }`}
+              >
                 {isDone ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Icon className="w-3.5 h-3.5" />}
                 {step.label}
-              </div>
+              </button>
               {idx < STEPS_LABELS.length - 1 && (
                 <ChevronRight className={`w-3.5 h-3.5 mx-1 shrink-0 ${idx < activeStep ? "text-primary" : "text-border"}`} />
               )}
