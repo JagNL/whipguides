@@ -74,9 +74,9 @@ export default function App() {
             <Route path="/admin" component={() => <Layout><AdminPage /></Layout>} />
             <Route path="/guides" component={() => <Layout><GuidesPage /></Layout>} />
             <Route path="/guides/new" component={() => <Layout><CreateGuidePage /></Layout>} />
+            <Route path="/guides/:id/edit" component={({ params }) => <Layout><CreateGuidePage guideId={Number(params.id)} /></Layout>} />
             <Route path="/guides/:id" component={({ params }) => <Layout><GuideDetailPage id={Number(params.id)} /></Layout>} />
             <Route path="/guides/:id/:slug" component={({ params }) => <Layout><GuideDetailPage id={Number(params.id)} /></Layout>} />
-            <Route path="/guides/:id/edit" component={({ params }) => <Layout><CreateGuidePage guideId={Number(params.id)} /></Layout>} />
             <Route path="/auth/callback" component={() => <AuthCallbackPage />} />
             <Route path="/search" component={() => <Layout><SearchPage /></Layout>} />
             <Route path="/saved" component={() => <Layout><SavedListsPage /></Layout>} />
