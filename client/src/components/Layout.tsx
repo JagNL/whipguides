@@ -301,7 +301,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             ))}
             {isAuthenticated ? (
               <>
-                <Link href={profileUrl(user?.id, user?.displayName || user?.username)} onClick={() => setMobileMenuOpen(false)}>
+                <Link href={user?.id ? profileUrl(user.id, user.displayName || user.username) : "/feed"} onClick={() => setMobileMenuOpen(false)}>
                   <Button variant="ghost" className="w-full justify-start gap-2">
                     <User className="w-4 h-4" /> My Profile
                   </Button>

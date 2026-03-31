@@ -27,7 +27,7 @@ import type { Guide, GuideComment } from "@/../../server/storage";
 import { extractYouTubeId } from "@/lib/guide-verticals";
 import { GUIDE_VERTICALS } from "@/lib/guide-verticals";
 import { VERTICAL_ICONS } from "@/components/CreateGuideSteps";
-import { guideUrl, profileUrl, slugify } from "@/lib/utils";
+import { guideUrl, profileUrl } from "@/lib/utils";
 
 function difficultyColor(d: string) {
   if (d === "beginner") return "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20";
@@ -298,24 +298,6 @@ export default function GuideDetailPage({ id }: { id: number }) {
     queryKey: ["/api/guides", id],
     queryFn: () => apiRequest("GET", `/api/guides/${id}`).then(r => r.json()),
   });
-
-  
-  // Canonical slug redirect — if URL has no slug or wrong slug, replace with correct one
-  // e.g. /groups/14 → /groups/14/polaris-sportsman-500s (no page reload, just history update)
-  useEffect(() => { // slug_redirect
-    if (guide && typeof window !== "undefined") {
-      const correctSlug = slugify(guide.title || "");
-      const path = window.location.pathname;
-      const parts = path.split("/").filter(Boolean);
-      // parts: ["groups", "14"] or ["groups", "14", "some-old-slug"]
-      const hasSlug = parts.length >= 3;
-      const currentSlug = hasSlug ? parts[parts.length - 1] : "";
-      if (correctSlug && currentSlug !== correctSlug) {
-        const canonical = guideUrl(id, guide.title);
-        window.history.replaceState(null, "", canonical);
-      }
-    }
-  }, [guide]);
 
     // SEO — updates whenever guide loads
   useSEO({

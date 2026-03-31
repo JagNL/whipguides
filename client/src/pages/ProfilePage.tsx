@@ -29,7 +29,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation, Link } from "wouter";
 import ReportButton from "@/components/ReportButton";
-import { guideUrl, profileUrl, slugify, timeAgo } from "@/lib/utils";
+import { guideUrl, profileUrl, timeAgo } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────
 type Tab = "listings" | "reviews" | "posts" | "garage" | "projects" | "badges" | "guides";
@@ -432,24 +432,6 @@ export default function ProfilePage({ id }: { id: number }) {
     queryKey: ["/api/users", id],
     queryFn: () => apiRequest("GET", `/api/users/${id}`).then(r => r.json()),
   });
-
-  
-  // Canonical slug redirect — if URL has no slug or wrong slug, replace with correct one
-  // e.g. /groups/14 → /groups/14/polaris-sportsman-500s (no page reload, just history update)
-  useEffect(() => { // slug_redirect
-    if (user && typeof window !== "undefined") {
-      const correctSlug = slugify(user.displayName || "");
-      const path = window.location.pathname;
-      const parts = path.split("/").filter(Boolean);
-      // parts: ["groups", "14"] or ["groups", "14", "some-old-slug"]
-      const hasSlug = parts.length >= 3;
-      const currentSlug = hasSlug ? parts[parts.length - 1] : "";
-      if (correctSlug && currentSlug !== correctSlug) {
-        const canonical = profileUrl(id, user.displayName);
-        window.history.replaceState(null, "", canonical);
-      }
-    }
-  }, [user]);
 
     // SEO
   const _seoName = user ? (user.displayName || user.username || "Profile") : "Profile";

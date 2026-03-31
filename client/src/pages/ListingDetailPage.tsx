@@ -8,7 +8,7 @@ import { StarRating } from "@/components/StarRating";
 import { VideoPlayer } from "@/components/VideoPlayer";
 import { Link, useLocation } from "wouter";
 import { useState, useEffect } from "react";
-import { formatPrice, listingUrl, profileUrl, slugify, timeAgo } from "@/lib/utils";
+import { formatPrice, listingUrl, profileUrl, timeAgo } from "@/lib/utils";
 import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -66,24 +66,6 @@ export default function ListingDetailPage({ id }: { id: number }) {
     queryKey: ["/api/listings", id],
     queryFn: () => apiRequest("GET", `/api/listings/${id}`).then(r => r.json()),
   });
-
-  
-  // Canonical slug redirect — if URL has no slug or wrong slug, replace with correct one
-  // e.g. /groups/14 → /groups/14/polaris-sportsman-500s (no page reload, just history update)
-  useEffect(() => { // slug_redirect
-    if (listing && typeof window !== "undefined") {
-      const correctSlug = slugify(listing.title || "");
-      const path = window.location.pathname;
-      const parts = path.split("/").filter(Boolean);
-      // parts: ["groups", "14"] or ["groups", "14", "some-old-slug"]
-      const hasSlug = parts.length >= 3;
-      const currentSlug = hasSlug ? parts[parts.length - 1] : "";
-      if (correctSlug && currentSlug !== correctSlug) {
-        const canonical = listingUrl(id, listing.title);
-        window.history.replaceState(null, "", canonical);
-      }
-    }
-  }, [listing]);
 
     // SEO
   const listingTitle = listing ? `${listing.title} — $${(listing.price || 0).toLocaleString()}` : "Listing";

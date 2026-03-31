@@ -18,7 +18,7 @@ import { GroupSettingsSheet } from "@/components/GroupSettingsSheet";
 import { VideoUploader, type VideoUploadResult } from "@/components/VideoUploader";
 import { VideoPlayer, VideoThumbnail } from "@/components/VideoPlayer";
 import { useAppConfig } from "@/hooks/use-cf-url";
-import { groupUrl, guideUrl, profileUrl, slugify, timeAgo } from "@/lib/utils";
+import { groupUrl, guideUrl, profileUrl, timeAgo } from "@/lib/utils";
 import {
   Users, MessageSquare, Heart, Share2, Plus,
   MoreHorizontal, TrendingUp, ImageIcon, X, Loader2,
@@ -1302,24 +1302,6 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const isSiteAdmin = membershipData?.isSuperAdmin ?? false;
   const isOwner = user && group && user.id === group.ownerId;
   const isGroupAdmin = isOwner || myRole === "admin" || isSiteAdmin;
-
-  
-  // Canonical slug redirect — if URL has no slug or wrong slug, replace with correct one
-  // e.g. /groups/14 → /groups/14/polaris-sportsman-500s (no page reload, just history update)
-  useEffect(() => { // slug_redirect
-    if (group && typeof window !== "undefined") {
-      const correctSlug = slugify(group.name || "");
-      const path = window.location.pathname;
-      const parts = path.split("/").filter(Boolean);
-      // parts: ["groups", "14"] or ["groups", "14", "some-old-slug"]
-      const hasSlug = parts.length >= 3;
-      const currentSlug = hasSlug ? parts[parts.length - 1] : "";
-      if (correctSlug && currentSlug !== correctSlug) {
-        const canonical = groupUrl(id, group.name);
-        window.history.replaceState(null, "", canonical);
-      }
-    }
-  }, [group]);
 
     // SEO
   useSEO({
