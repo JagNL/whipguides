@@ -274,6 +274,42 @@ adminRouter.post("/users/:id/verify", async (req, res) => {
   res.json({ success: true });
 });
 
+// PATCH /api/admin/users/:id — super admin can update username/display_name/email
+adminRouter.patch("/users/:id", requireSuperAdmin, async (req, res) => {
+  const adminUser = (req as any).currentUser;
+  const targetId = Number(req.params.id);
+  const { username, displayName, email } = req.body;
+  const updates: any = {};
+
+  if (username !== undefined) {
+    const clean = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (!clean || clean.length < 2 || clean.length > 30)
+      return res.status(400).json({ error: "Username must be 2–30 alphanumeric characters" });
+    // Uniqueness check
+    const { data: existing } = await supabaseAdmin
+      .from("users").select("id").eq("username", clean).neq("id", targetId).single();
+    if (existing) return res.status(409).json({ error: "Username already taken" });
+    updates.username = clean;
+  }
+  if (displayName !== undefined) updates.display_name = displayName.trim();
+  if (email !== undefined)       updates.email = email.trim().toLowerCase();
+
+  if (!Object.keys(updates).length) return res.status(400).json({ error: "Nothing to update" });
+
+  const { data, error } = await supabaseAdmin.from("users").update(updates).eq("id", targetId).select().single();
+  if (error) return res.status(400).json({ error: error.message });
+
+  await supabaseAdmin.from("admin_actions").insert({
+    admin_id: adminUser.id,
+    action: "edit_user",
+    target_type: "user",
+    target_id: targetId,
+    notes: `Updated fields: ${Object.keys(updates).join(", ")}`,
+  }).catch(() => {});
+
+  res.json({ success: true, user: data });
+});
+
 // ── Listings management ──────────────────────────────────────
 adminRouter.get("/listings", async (req, res) => {
   const { search, status, page = "1" } = req.query;
