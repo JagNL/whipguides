@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Link, useLocation } from "wouter";
 import { useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useSEO } from "@/hooks/use-seo";
 import { useToast } from "@/hooks/use-toast";
 import ImageUploader from "@/components/ImageUploader";
 import { GuideEmbedCard } from "@/components/GuideEmbedCard";
@@ -1301,6 +1302,14 @@ export default function GroupDetailPage({ id }: { id: number }) {
   const isSiteAdmin = membershipData?.isSuperAdmin ?? false;
   const isOwner = user && group && user.id === group.ownerId;
   const isGroupAdmin = isOwner || myRole === "admin" || isSiteAdmin;
+
+  // SEO
+  useSEO({
+    title: group ? group.name : "Group",
+    description: group?.description || undefined,
+    image: group?.coverImage || null,
+    url: `${window.location.origin}/groups/${id}`,
+  });
 
   // Settings sheet + delete dialog state
   const [mainTab, setMainTab] = useState<"posts" | "events" | "guides" | "members">("posts");

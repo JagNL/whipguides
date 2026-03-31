@@ -24,6 +24,7 @@ import {
   BookOpen, Package, X,
 } from "lucide-react";
 import { useState as useS } from "react";
+import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation, Link } from "wouter";
@@ -430,6 +431,16 @@ export default function ProfilePage({ id }: { id: number }) {
   const { data: user, isLoading: userLoading } = useQuery<any>({
     queryKey: ["/api/users", id],
     queryFn: () => apiRequest("GET", `/api/users/${id}`).then(r => r.json()),
+  });
+
+  // SEO
+  const _seoName = user ? (user.displayName || user.username || "Profile") : "Profile";
+  useSEO({
+    title: _seoName,
+    description: user?.bio?.slice(0, 160) || `${_seoName}'s profile on WhipGuides`,
+    image: user?.avatar || null,
+    url: `${window.location.origin}/profile/${id}`,
+    type: "profile",
   });
   const { data: allListings = [], isLoading: listingsLoading } = useQuery<any[]>({
     queryKey: ["/api/listings"],

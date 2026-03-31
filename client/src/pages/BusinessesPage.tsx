@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { BusinessCard } from "@/components/BusinessCard";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ const CATEGORIES = [
 ];
 
 export function BusinessesPage() {
+  useSEO({ title: "Businesses", description: "Discover automotive shops, dealers, and specialty businesses on WhipGuides." });
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const [q, setQ] = useState("");

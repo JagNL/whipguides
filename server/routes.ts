@@ -2035,9 +2035,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     const { data: members } = await supabaseAdminForRoutes
       .from("group_members")
-      .select("user_id, role, joined_at:created_at")
+      .select("user_id, role, joined_at")
       .eq("group_id", groupId)
-      .order("created_at", { ascending: true });
+      .order("joined_at", { ascending: true });
 
     if (!members?.length) return res.json([]);
 

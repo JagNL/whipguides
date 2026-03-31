@@ -9,6 +9,7 @@ import { VideoPlayer } from "@/components/VideoPlayer";
 import { Link, useLocation } from "wouter";
 import { useState, useEffect } from "react";
 import { timeAgo, formatPrice } from "@/lib/utils";
+import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import ListingCard from "@/components/ListingCard";
@@ -64,6 +65,16 @@ export default function ListingDetailPage({ id }: { id: number }) {
   const { data: listing, isLoading } = useQuery<any>({
     queryKey: ["/api/listings", id],
     queryFn: () => apiRequest("GET", `/api/listings/${id}`).then(r => r.json()),
+  });
+
+  // SEO
+  const listingTitle = listing ? `${listing.title} — $${(listing.price || 0).toLocaleString()}` : "Listing";
+  useSEO({
+    title: listingTitle,
+    description: listing?.description?.slice(0, 160) || undefined,
+    image: (listing?.images as string[] | undefined)?.[0] || null,
+    url: `${window.location.origin}/listing/${id}`,
+    type: "article",
   });
 
   const { data: reviews = [] } = useQuery<any[]>({

@@ -16,6 +16,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
@@ -240,7 +241,7 @@ function FeedPostCard({ post, groups }: { post: any; groups: any[] }) {
     `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.author?.username}`;
 
   const handleShare = () => {
-    const url = `${window.location.origin}/#/groups/${post.group?.id}`;
+    const url = `${window.location.origin}/groups/${post.group?.id}`;
     if (navigator.share) {
       navigator.share({ title: post.author?.display_name, text: post.content?.slice(0, 100), url });
     } else {
@@ -671,6 +672,7 @@ function FeedPostSkeleton() {
 
 // ─── Main FeedPage ────────────────────────────────────────────
 export default function FeedPage() {
+  useSEO({ title: "Your Feed", description: "Stay up to date with your WhipGuides communities." });
   const { user, isAuthenticated } = useAuth();
   const [cursor, setCursor] = useState<string | null>(null);
   const [allPosts, setAllPosts] = useState<any[]>([]);

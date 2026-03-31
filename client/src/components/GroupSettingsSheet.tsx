@@ -502,14 +502,14 @@ export function GroupSettingsSheet({ group, isOwner, isSiteAdmin, onClose, onDel
                 <div className="flex items-center gap-2">
                   <Input
                     readOnly
-                    value={`${window.location.origin}/#/groups/${group.id}`}
+                    value={`${window.location.origin}/groups/${group.id}`}
                     className="bg-background border-border text-xs"
                   />
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      navigator.clipboard.writeText(`${window.location.origin}/#/groups/${group.id}`);
+                      navigator.clipboard.writeText(`${window.location.origin}/groups/${group.id}`);
                       toast({ title: "Link copied!" });
                     }}
                   >

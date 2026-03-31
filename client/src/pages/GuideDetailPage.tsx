@@ -10,6 +10,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -295,6 +296,15 @@ export default function GuideDetailPage({ id }: { id: number }) {
   const { data: guide, isLoading } = useQuery<Guide>({
     queryKey: ["/api/guides", id],
     queryFn: () => apiRequest("GET", `/api/guides/${id}`).then(r => r.json()),
+  });
+
+  // SEO — updates whenever guide loads
+  useSEO({
+    title: guide ? (guide as any).title : "Guide",
+    description: guide ? (guide as any).description?.slice(0, 160) : undefined,
+    image: guide ? ((guide as any).coverImage || (guide as any).coverImageId || null) : null,
+    url: `${window.location.origin}/guides/${id}`,
+    type: "article",
   });
 
   const { data: comments } = useQuery<GuideComment[]>({

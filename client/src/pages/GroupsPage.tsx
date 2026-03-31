@@ -11,6 +11,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { GroupSetupWizard } from "@/components/GroupSetupWizard";
@@ -219,6 +220,7 @@ function SearchDropdown({ results, onClose }: { results: any[]; onClose: () => v
 
 // ── Main GroupsPage ──────────────────────────────────────────
 export default function GroupsPage() {
+  useSEO({ title: "Groups", description: "Find and join WhipGuides communities for automotive, motorsports, firearms, maker and music enthusiasts." });
   const [activeCategory, setActiveCategory] = useState("All");
   const [activeVertical, setActiveVertical] = useState("All");
   const [createOpen, setCreateOpen] = useState(false);

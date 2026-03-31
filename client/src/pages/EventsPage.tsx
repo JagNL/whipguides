@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
@@ -288,6 +289,7 @@ function CreateEventDialog({ open, onClose, prefillGroupId, prefillVertical }: {
 
 // ── Main EventsPage ───────────────────────────────────────────
 export default function EventsPage() {
+  useSEO({ title: "Events", description: "Discover automotive meets, track days, gun shows, maker fairs, and more events near you on WhipGuides." });
   const [activeVertical, setActiveVertical] = useState("All");
   const [showPast, setShowPast] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);

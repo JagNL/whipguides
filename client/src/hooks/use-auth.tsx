@@ -189,7 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithOAuth = useCallback(async (provider: "google" | "facebook" | "apple") => {
     const { getSupabaseClient } = await import("@/lib/supabase-client");
     const supabase = await getSupabaseClient();
-    const redirectTo = `${window.location.origin}/#/auth/callback`;
+    const redirectTo = `${window.location.origin}/auth/callback`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo },

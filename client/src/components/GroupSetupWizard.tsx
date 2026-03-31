@@ -221,7 +221,7 @@ function InviteStep({
       apiRequest("POST", `/api/groups/${groupId}/join`, { message: `You've been invited to join ${groupName}!` }).then(r => r.json()),
   });
 
-  const shareLink = `${window.location.origin}/#/groups/${groupId}`;
+  const shareLink = `${window.location.origin}/groups/${groupId}`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(shareLink).then(() =>

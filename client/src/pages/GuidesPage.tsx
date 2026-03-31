@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Search, Plus, Heart, Eye, Clock, Wrench, BookOpen, ChevronRight,
@@ -163,6 +164,7 @@ function SeriesCard({ series }: { series: any }) {
 }
 
 export default function GuidesPage() {
+  useSEO({ title: "How-To Guides", description: "Explore community-created automotive, motorsports, and maker how-to guides on WhipGuides." });
   const [, navigate] = useLocation();
   const { isAuthenticated } = useAuth();
   const [search, setSearch] = useState("");
