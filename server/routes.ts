@@ -1329,6 +1329,59 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Post Comments ──────────────────────────────────────────────────
+
+  // GET /api/posts/:id/comments
+  app.get("/api/posts/:id/comments", optionalAuth, async (req, res) => {
+    const postId = Number(req.params.id);
+    try {
+      const comments = await (storage as any).listPostComments(postId);
+      return res.json(comments);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/posts/:id/comments — add a comment
+  app.post("/api/posts/:id/comments", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const postId = Number(req.params.id);
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: "Content required" });
+    try {
+      const comment = await (storage as any).createPostComment(postId, currentUser.id, content.trim());
+      // Notify post author (fire & forget, skip self-notifications)
+      const post = await storage.getPost(postId);
+      if (post && post.authorId !== currentUser.id) {
+        (storage as any).createNotification({
+          userId: post.authorId,
+          type: "post_comment",
+          title: `${currentUser.displayName || currentUser.username} commented on your post`,
+          linkType: "group",
+          linkId: post.groupId,
+          actorId: currentUser.id,
+        }).catch(() => {});
+      }
+      return res.status(201).json(comment);
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+  });
+
+  // DELETE /api/posts/:id/comments/:commentId
+  app.delete("/api/posts/:id/comments/:commentId", requireAuth, async (req, res) => {
+    const currentUser = (req as any).currentUser;
+    const commentId = Number(req.params.commentId);
+    const isSuperAdmin = (currentUser as any).siteRole === "super_admin";
+    try {
+      const deleted = await (storage as any).deletePostComment(commentId, currentUser.id, isSuperAdmin);
+      if (!deleted) return res.status(403).json({ error: "Not allowed" });
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // Like / unlike a post
   app.post("/api/posts/:id/like", requireAuth, async (req, res) => {
     const currentUser = (req as any).currentUser;

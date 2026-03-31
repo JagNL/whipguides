@@ -127,6 +127,11 @@ function PostCard({ post, currentUserId, groupAdminRole }: {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportReason, setReportReason] = useState("");
   const [reportNote, setReportNote] = useState("");
+  // Comments
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentCount, setCommentCount] = useState(post.commentCount || 0);
+  const [commentText, setCommentText] = useState("");
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
   const isAuthor = currentUserId === post.author?.id || currentUserId === post.authorId;
   const isGroupMod = ["owner", "admin", "moderator"].includes(groupAdminRole || "");
@@ -156,6 +161,38 @@ function PostCard({ post, currentUserId, groupAdminRole }: {
     setHelped(h => !h);
     setHelpedCount(n => helped ? Math.max(0, n - 1) : n + 1);
     toggleHelped();
+  };
+
+  // ── Comments ─────────────────────────────────────────
+  const { data: comments = [], refetch: refetchComments } = useQuery<any[]>({
+    queryKey: ["/api/posts", post.id, "comments"],
+    queryFn: () => apiRequest("GET", `/api/posts/${post.id}/comments`).then(r => r.json()),
+    enabled: commentsOpen,
+    staleTime: 30_000,
+  });
+
+  const { mutate: submitComment, isPending: submittingComment } = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", `/api/posts/${post.id}/comments`, { content: commentText.trim() }).then(r => r.json()),
+    onSuccess: () => {
+      setCommentText("");
+      setCommentCount((n: number) => n + 1);
+      refetchComments();
+    },
+    onError: (err: any) => toast({ title: "Error", description: err?.message, variant: "destructive" }),
+  });
+
+  const { mutate: deleteComment } = useMutation({
+    mutationFn: (commentId: number) =>
+      apiRequest("DELETE", `/api/posts/${post.id}/comments/${commentId}`).then(r => r.json()),
+    onSuccess: () => { setCommentCount((n: number) => Math.max(0, n - 1)); refetchComments(); },
+    onError: () => toast({ title: "Could not delete comment", variant: "destructive" }),
+  });
+
+  const handleOpenComments = () => {
+    setCommentsOpen(o => !o);
+    // Focus input when opening
+    if (!commentsOpen) setTimeout(() => commentInputRef.current?.focus(), 100);
   };
 
   const { mutate: deletePost, isPending: deleting } = useMutation({
@@ -375,9 +412,15 @@ function PostCard({ post, currentUserId, groupAdminRole }: {
           {likes.toLocaleString()}
         </button>
 
-        <button className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors">
+        <button
+          onClick={handleOpenComments}
+          className={`flex items-center gap-1.5 text-xs transition-colors ${
+            commentsOpen ? "text-primary font-medium" : "text-muted-foreground hover:text-primary"
+          }`}
+          data-testid={`button-comments-${post.id}`}
+        >
           <MessageSquare className="w-4 h-4" />
-          {(post.commentCount || 0).toLocaleString()} comments
+          {commentCount.toLocaleString()} {commentCount === 1 ? "comment" : "comments"}
         </button>
 
         {/* "This helped me" — only shown on posts with a guide embed */}
@@ -403,6 +446,83 @@ function PostCard({ post, currentUserId, groupAdminRole }: {
           Share
         </button>
       </div>
+
+      {/* ── Comment thread ─────────────────────────── */}
+      {commentsOpen && (
+        <div className="pt-3 mt-1 border-t border-border space-y-3">
+          {/* Existing comments */}
+          {(comments as any[]).map((c: any) => (
+            <div key={c.id} className="flex gap-2.5 group/comment">
+              <Link href={profileUrl(c.author?.id, c.author?.displayName)}>
+                <Avatar className="w-7 h-7 shrink-0 mt-0.5 cursor-pointer">
+                  <AvatarImage src={c.author?.avatar} />
+                  <AvatarFallback className="text-xs">{(c.author?.displayName || "?")[0]}</AvatarFallback>
+                </Avatar>
+              </Link>
+              <div className="flex-1 min-w-0">
+                <div className="bg-secondary rounded-2xl px-3 py-2">
+                  <Link href={profileUrl(c.author?.id, c.author?.displayName)}>
+                    <span className="text-xs font-semibold hover:text-primary transition-colors cursor-pointer">
+                      {c.author?.displayName || c.author?.username || "User"}
+                    </span>
+                  </Link>
+                  <p className="text-sm leading-snug mt-0.5 whitespace-pre-line">{c.content}</p>
+                </div>
+                <div className="flex items-center gap-3 mt-1 px-1">
+                  <span className="text-[11px] text-muted-foreground">{timeAgo(c.createdAt)}</span>
+                  {(currentUserId === c.author?.id || ["owner","admin","super_admin"].includes(groupAdminRole || "")) && (
+                    <button
+                      onClick={() => deleteComment(c.id)}
+                      className="text-[11px] text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover/comment:opacity-100"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Compose new comment */}
+          {currentUserId ? (
+            <div className="flex gap-2.5">
+              <Avatar className="w-7 h-7 shrink-0 mt-1">
+                <AvatarImage src={(comments as any[]).find((c: any) => c.author?.id === currentUserId)?.author?.avatar} />
+                <AvatarFallback className="text-xs">Y</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 flex gap-2 items-end">
+                <textarea
+                  ref={commentInputRef}
+                  value={commentText}
+                  onChange={e => setCommentText(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && !e.shiftKey && commentText.trim()) {
+                      e.preventDefault();
+                      submitComment();
+                    }
+                  }}
+                  placeholder="Write a comment..."
+                  rows={1}
+                  className="flex-1 bg-secondary border border-border rounded-2xl px-3 py-2 text-sm resize-none outline-none focus:border-primary/50 transition-colors placeholder:text-muted-foreground"
+                  style={{ minHeight: "36px", maxHeight: "120px" }}
+                  data-testid={`input-comment-${post.id}`}
+                />
+                <Button
+                  size="sm"
+                  disabled={!commentText.trim() || submittingComment}
+                  onClick={() => submitComment()}
+                  className="h-9 px-3 shrink-0"
+                  data-testid={`button-submit-comment-${post.id}`}
+                >
+                  {submittingComment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Post"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-1">Sign in to comment</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

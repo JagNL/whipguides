@@ -654,6 +654,70 @@ export class SupabaseStorage implements IStorage {
     return !!data;
   }
 
+  // ── Post Comments ─────────────────────────────────────────────
+  async listPostComments(postId: number): Promise<any[]> {
+    const { data } = await supabaseAdmin
+      .from("post_comments")
+      .select("*, author:users!post_comments_author_id_fkey(id,username,display_name,avatar,verified)")
+      .eq("post_id", postId)
+      .order("created_at", { ascending: true });
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      postId: row.post_id,
+      content: row.content,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      author: row.author ? {
+        id: row.author.id,
+        username: row.author.username,
+        displayName: row.author.display_name,
+        avatar: row.author.avatar,
+        verified: row.author.verified,
+      } : null,
+    }));
+  }
+
+  async createPostComment(postId: number, authorId: number, content: string): Promise<any> {
+    const { data, error } = await supabaseAdmin
+      .from("post_comments")
+      .insert({ post_id: postId, author_id: authorId, content })
+      .select("*, author:users!post_comments_author_id_fkey(id,username,display_name,avatar,verified)")
+      .single();
+    if (error) throw new Error(error.message);
+    // Increment comment_count on the post
+    await supabaseAdmin.rpc("increment_post_comment_count" as any, { p_post_id: postId })
+      .then(() => null, async () => {
+        // Fallback if RPC doesn't exist: manual increment
+        const { data: post } = await supabaseAdmin.from("posts").select("comment_count").eq("id", postId).single();
+        await supabaseAdmin.from("posts").update({ comment_count: (post?.comment_count || 0) + 1 }).eq("id", postId);
+      });
+    return {
+      id: data.id,
+      postId: data.post_id,
+      content: data.content,
+      createdAt: data.created_at,
+      author: data.author ? {
+        id: data.author.id,
+        username: data.author.username,
+        displayName: data.author.display_name,
+        avatar: data.author.avatar,
+        verified: data.author.verified,
+      } : null,
+    };
+  }
+
+  async deletePostComment(commentId: number, requestingUserId: number, isSuperAdmin = false): Promise<boolean> {
+    // Only the comment author or a super admin can delete
+    const { data } = await supabaseAdmin.from("post_comments").select("author_id, post_id").eq("id", commentId).single();
+    if (!data) return false;
+    if (data.author_id !== requestingUserId && !isSuperAdmin) return false;
+    await supabaseAdmin.from("post_comments").delete().eq("id", commentId);
+    // Decrement comment_count
+    const { data: post } = await supabaseAdmin.from("posts").select("comment_count").eq("id", data.post_id).single();
+    await supabaseAdmin.from("posts").update({ comment_count: Math.max(0, (post?.comment_count || 1) - 1) }).eq("id", data.post_id);
+    return true;
+  }
+
   async listReviewsForUser(userId: number): Promise<Review[]> {
     const { data } = await supabaseAdmin.from("reviews").select("*").eq("reviewee_id", userId).order("created_at", { ascending: false });
     return (data || []).map(this.mapReview.bind(this));
