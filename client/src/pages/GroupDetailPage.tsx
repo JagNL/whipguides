@@ -456,8 +456,9 @@ function PostComposer({ groupId, user }: { groupId: number; user: any }) {
       return res.json();
     },
     onSuccess: (newPost) => {
+      // Preserve all server-returned fields (including guide embed) — only override author
       queryClient.setQueryData<any[]>(["/api/groups", groupId, "posts"], old =>
-        [{ ...newPost, author: user }, ...(old || [])]
+        [{ ...newPost, author: { ...user, ...newPost.author } }, ...(old || [])]
       );
       queryClient.invalidateQueries({ queryKey: ["/api/groups", groupId] });
       reset();
