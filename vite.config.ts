@@ -39,41 +39,8 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    // ── Chunking strategy ────────────────────────────────────
-    // Split vendor libs into stable chunks that browsers cache
-    // across deploys. Page chunks are tiny and load on-demand.
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          // React core — almost never changes, longest cache life
-          if (id.includes("node_modules/react") ||
-              id.includes("node_modules/react-dom") ||
-              id.includes("node_modules/scheduler")) {
-            return "vendor-react";
-          }
-          // Radix UI primitives — large, stable
-          if (id.includes("node_modules/@radix-ui")) {
-            return "vendor-radix";
-          }
-          // Supabase client — already tiny via stub, keep separate
-          if (id.includes("node_modules/@supabase")) {
-            return "vendor-supabase";
-          }
-          // TanStack Query — frequently used, separate for cache
-          if (id.includes("node_modules/@tanstack")) {
-            return "vendor-query";
-          }
-          // Everything else in node_modules — keep together to avoid
-          // circular dependency issues between libs like recharts/d3
-          if (id.includes("node_modules")) {
-            return "vendor-misc";
-          }
-          // App code stays unsplit — wouter lazy() handles page splitting
-        },
-      },
-    },
-    // Raise the warning threshold — we know about the chunks
-    chunkSizeWarningLimit: 600,
+    // Raise the warning threshold — large vendor chunks are expected
+    chunkSizeWarningLimit: 1000,
   },
   server: {
     fs: {
