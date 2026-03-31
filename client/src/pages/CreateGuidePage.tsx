@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { AvatarUploader } from "@/components/ImageUploader";
+import { AvatarUploader, CoverUploader } from "@/components/ImageUploader";
 import { AnnotationEditorDialog } from "@/components/GuideAnnotations";
 import type { Annotation } from "@/components/GuideAnnotations";
 import {
@@ -283,15 +283,16 @@ export default function CreateGuidePage({ guideId }: { guideId?: number }) {
       </div>
       <div className="space-y-1.5">
         <Label>Cover Image</Label>
-        <div className="flex items-start gap-3">
-          {form.coverImageId && cfUrl && (
-            <img src={`${cfUrl}/${form.coverImageId}/public`} alt="Cover" className="w-20 h-20 object-cover rounded-lg border border-border" />
-          )}
-          <AvatarUploader
-            currentUrl={form.coverImageId && cfUrl ? `${cfUrl}/${form.coverImageId}/public` : null}
-            onUpload={(id, previewUrl) => update("coverImageId", id)}
-          />
-        </div>
+        <CoverUploader
+          currentUrl={form.coverImageId
+            ? (form.coverImageId.startsWith('http') || form.coverImageId.startsWith('data:')
+                ? form.coverImageId
+                : cfUrl ? `${cfUrl}/${form.coverImageId}/public` : null)
+            : null}
+          aspectRatio={16 / 9}
+          label="Upload cover image"
+          onUpload={(id, previewUrl) => update("coverImageId", previewUrl || id)}
+        />
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="headerEmbed" className="flex items-center gap-2">

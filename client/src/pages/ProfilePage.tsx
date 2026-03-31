@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { StarRating } from "@/components/StarRating";
 import ListingCard from "@/components/ListingCard";
-import { AvatarUploader } from "@/components/ImageUploader";
+import { AvatarUploader, CoverUploader } from "@/components/ImageUploader";
 import ImageUploader from "@/components/ImageUploader";
 import { PostImageGrid } from "@/components/ImageLightbox";
 import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
@@ -666,25 +666,21 @@ export default function ProfilePage({ id }: { id: number }) {
                       </Button>
                     )}
                   </div>
-                  {/* Row 2: Change cover — crop + real upload + instant save */}
-                  <div className="flex items-center gap-2">
-                    <AvatarUploader
-                      currentUrl={user.cover_image
-                        ? (user.cover_image.startsWith('http') || user.cover_image.startsWith('data:')
-                            ? user.cover_image
-                            : cfBase ? `${cfBase}/${user.cover_image}/public` : null)
-                        : null}
-                      onUpload={async (imgId, cdnUrl) => {
-                        // Upload done — immediately save to DB and refresh
-                        const url = cdnUrl || imgId;
-                        await apiRequest("PATCH", `/api/users/${id}`, { cover_image: url });
-                        qc.invalidateQueries({ queryKey: ["/api/users", id] });
-                        toast({ title: "Cover photo updated" });
-                      }}
-                      size={32}
-                    />
-                    <span className="text-xs text-muted-foreground">Change cover</span>
-                  </div>
+                  {/* Row 2: Change cover — rectangular crop + instant save */}
+                  <CoverUploader
+                    currentUrl={user.cover_image
+                      ? (user.cover_image.startsWith('http') || user.cover_image.startsWith('data:')
+                          ? user.cover_image
+                          : cfBase ? `${cfBase}/${user.cover_image}/public` : null)
+                      : null}
+                    aspectRatio={3}
+                    label="Change cover photo"
+                    onUpload={async (imgId, cdnUrl) => {
+                      const url = cdnUrl || imgId;
+                      await apiRequest("PATCH", `/api/users/${id}`, { cover_image: url });
+                      qc.invalidateQueries({ queryKey: ["/api/users", id] });
+                    }}
+                  />
                 </div>
               ) : (
                 <div className="flex gap-2 shrink-0">

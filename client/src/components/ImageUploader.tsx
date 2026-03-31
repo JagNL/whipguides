@@ -1,8 +1,9 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useEffect } from "react";
 import { apiRequest, getToken } from "@/lib/queryClient";
-import { Camera, X, Loader2, ImagePlus, Pencil } from "lucide-react";
+import { Camera, X, Loader2, ImagePlus, Pencil, ZoomIn, ZoomOut, RotateCw, Check, ImageIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import AvatarCropModal from "@/components/AvatarCropModal";
 
 // ─── Types ───────────────────────────────────────────────────
@@ -422,6 +423,223 @@ export function AvatarUploader({ currentUrl, onUpload, size = 80 }: AvatarUpload
           imageSrc={cropSrc}
           onConfirm={handleCropConfirm}
           onClose={() => setCropSrc(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Cover Crop Modal — landscape rectangular crop (3:1 banner)
+// Drag to reposition, scroll/pinch to zoom, no circle clip.
+// ─────────────────────────────────────────────────────────────
+interface CoverCropModalProps {
+  imageSrc: string;
+  onConfirm: (blob: Blob) => void;
+  onClose: () => void;
+  aspectRatio?: number; // width/height — default 3 (banner). Use 16/9 for guide.
+}
+
+export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }: CoverCropModalProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const imgRef    = useRef<HTMLImageElement | null>(null);
+  const OUT_W = 1200;
+  const OUT_H = Math.round(OUT_W / aspectRatio);
+
+  const [zoom, setZoom]         = useState(1);
+  const [offset, setOffset]     = useState({ x: 0, y: 0 });
+  const [rotation, setRotation] = useState(0);
+  const [loaded, setLoaded]     = useState(false);
+  const dragging   = useRef(false);
+  const lastPos    = useRef({ x: 0, y: 0 });
+  const pinchStart = useRef<{ dist: number; zoom: number } | null>(null);
+
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => { imgRef.current = img; setLoaded(true); setOffset({ x: 0, y: 0 }); setZoom(1); setRotation(0); };
+    img.src = imageSrc;
+  }, [imageSrc]);
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    const img = imgRef.current;
+    if (!canvas || !img) return;
+    const ctx = canvas.getContext("2d")!;
+    canvas.width = OUT_W; canvas.height = OUT_H;
+    ctx.clearRect(0, 0, OUT_W, OUT_H);
+    const isRot90 = rotation === 90 || rotation === 270;
+    const imgW = isRot90 ? img.height : img.width;
+    const imgH = isRot90 ? img.width  : img.height;
+    const scale = Math.max(OUT_W / imgW, OUT_H / imgH) * zoom;
+    const dW = (isRot90 ? img.height : img.width)  * scale;
+    const dH = (isRot90 ? img.width  : img.height) * scale;
+    ctx.save();
+    ctx.translate(OUT_W / 2, OUT_H / 2);
+    ctx.rotate((rotation * Math.PI) / 180);
+    ctx.drawImage(img, -dW / 2 + offset.x, -dH / 2 + offset.y, dW, dH);
+    ctx.restore();
+  }, [zoom, offset, rotation, OUT_W, OUT_H]);
+
+  useEffect(() => { if (loaded) draw(); }, [loaded, draw]);
+
+  const onMouseDown = (e: React.MouseEvent) => { dragging.current = true; lastPos.current = { x: e.clientX, y: e.clientY }; };
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!dragging.current) return;
+    const s = OUT_W / (canvasRef.current?.clientWidth || 480);
+    setOffset(o => ({ x: o.x + (e.clientX - lastPos.current.x) * s, y: o.y + (e.clientY - lastPos.current.y) * s }));
+    lastPos.current = { x: e.clientX, y: e.clientY };
+  };
+  const onMouseUp = () => { dragging.current = false; };
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) { dragging.current = true; lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
+    else if (e.touches.length === 2) { const dx = e.touches[0].clientX - e.touches[1].clientX; const dy = e.touches[0].clientY - e.touches[1].clientY; pinchStart.current = { dist: Math.hypot(dx, dy), zoom }; }
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    e.preventDefault();
+    if (e.touches.length === 1 && dragging.current) {
+      const s = OUT_W / (canvasRef.current?.clientWidth || 480);
+      setOffset(o => ({ x: o.x + (e.touches[0].clientX - lastPos.current.x) * s, y: o.y + (e.touches[0].clientY - lastPos.current.y) * s }));
+      lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if (e.touches.length === 2 && pinchStart.current) {
+      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      setZoom(Math.min(4, Math.max(0.5, pinchStart.current.zoom * (d / pinchStart.current.dist))));
+    }
+  };
+  const onTouchEnd = () => { dragging.current = false; pinchStart.current = null; };
+  const onWheel = (e: React.WheelEvent) => { e.preventDefault(); setZoom(z => Math.min(4, Math.max(0.5, z - e.deltaY * 0.001))); };
+  const handleConfirm = () => { canvasRef.current?.toBlob(b => { if (b) onConfirm(b); }, "image/jpeg", 0.92); };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm px-4">
+      <div className="bg-card border border-border rounded-2xl w-full max-w-lg p-5 space-y-4 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold">Adjust cover photo</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Drag to reposition · Scroll or pinch to zoom</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted/60 transition-colors">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        {/* Landscape preview canvas */}
+        <div className="relative w-full overflow-hidden rounded-xl border border-border bg-muted/20"
+          style={{ aspectRatio: String(aspectRatio) }}>
+          <canvas
+            ref={canvasRef}
+            style={{ width: "100%", height: "100%", cursor: dragging.current ? "grabbing" : "grab", touchAction: "none", display: loaded ? "block" : "none" }}
+            onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+            onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onWheel={onWheel}
+          />
+          {!loaded && <div className="w-full h-full bg-muted/30 animate-pulse" />}
+        </div>
+        {/* Zoom controls */}
+        <div className="flex items-center gap-3">
+          <button onClick={() => setZoom(z => Math.max(0.5, z - 0.1))} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"><ZoomOut className="w-4 h-4" /></button>
+          <input type="range" min={50} max={400} step={1} value={Math.round(zoom * 100)}
+            onChange={e => setZoom(Number(e.target.value) / 100)} className="flex-1 accent-primary h-1.5" />
+          <button onClick={() => setZoom(z => Math.min(4, z + 0.1))} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"><ZoomIn className="w-4 h-4" /></button>
+          <button onClick={() => setRotation(r => (r + 90) % 360)} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors" title="Rotate 90°"><RotateCw className="w-4 h-4" /></button>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-1" onClick={handleConfirm} disabled={!loaded}><Check className="w-4 h-4 mr-1.5" /> Use photo</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Cover Uploader — rectangular cover photo with landscape crop
+// Drop-in replacement for AvatarUploader when shape = "cover"
+// ─────────────────────────────────────────────────────────────
+export interface CoverUploaderProps {
+  currentUrl?: string | null;
+  onUpload: (imageId: string, previewUrl: string) => void;
+  aspectRatio?: number; // default 3 (banner). 16/9 for guide.
+  label?: string;
+}
+
+export function CoverUploader({ currentUrl, onUpload, aspectRatio = 3, label = "Change cover photo" }: CoverUploaderProps) {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview]       = useState<string | null>(currentUrl || null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [cropSrc, setCropSrc]       = useState<string | null>(null);
+
+  const handleFileSelected = (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    setCropSrc(URL.createObjectURL(file));
+  };
+
+  const handleCropConfirm = async (blob: Blob) => {
+    setCropSrc(null);
+    const localPreview = URL.createObjectURL(blob);
+    setPreview(localPreview);
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", blob, "cover.jpg");
+      formData.append("metadata", JSON.stringify({ type: "cover" }));
+      const token = getToken();
+      const res = await fetch("/api/upload/proxy", {
+        method: "POST", body: formData,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { imageId, cdnUrl } = await res.json();
+      onUpload(imageId, cdnUrl || localPreview);
+      toast({ title: "Cover photo updated" });
+    } catch (err) {
+      console.error("Cover upload error:", err);
+      toast({ title: "Upload failed", description: "Could not save your cover. Please try again.", variant: "destructive" });
+      setPreview(currentUrl || null);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Rectangular preview — click anywhere to change */}
+      <div
+        className="relative w-full overflow-hidden rounded-xl border border-border bg-secondary cursor-pointer group"
+        style={{ aspectRatio: String(aspectRatio) }}
+        onClick={() => !isUploading && fileInputRef.current?.click()}
+      >
+        {preview ? (
+          <img src={preview} alt="Cover" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground/50">
+            <ImageIcon className="w-8 h-8" />
+            <span className="text-xs">{label}</span>
+          </div>
+        )}
+        {/* Hover/tap overlay */}
+        <div className="absolute inset-0 bg-black/40 flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 sm:opacity-0 active:opacity-100 transition-opacity">
+          {isUploading ? (
+            <Loader2 className="w-5 h-5 text-white animate-spin" />
+          ) : (
+            <>
+              <Pencil className="w-4 h-4 text-white" />
+              <span className="text-white text-sm font-medium">{label}</span>
+            </>
+          )}
+        </div>
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*,image/heic,image/heif"
+        className="hidden"
+        onChange={e => e.target.files?.[0] && handleFileSelected(e.target.files[0])}
+      />
+      {cropSrc && (
+        <CoverCropModal
+          imageSrc={cropSrc}
+          onConfirm={handleCropConfirm}
+          onClose={() => setCropSrc(null)}
+          aspectRatio={aspectRatio}
         />
       )}
     </>
