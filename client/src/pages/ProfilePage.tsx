@@ -22,7 +22,7 @@ import {
   ShieldCheck, MapPin, Calendar, MessageSquare, Star, Clock, Pencil, Loader2,
   UserPlus, UserCheck, Pin, Trash2, Plus, Globe, Youtube, Instagram, Github,
   Twitch, Facebook, Award, Car, ChevronRight, Wrench, Image as ImageIcon, Send,
-  BookOpen, Package, X,
+  BookOpen, Package, X, EyeOff, ExternalLink,
 } from "lucide-react";
 import { useState as useS } from "react";
 import { useSEO } from "@/hooks/use-seo";
@@ -657,7 +657,19 @@ export default function ProfilePage({ id }: { id: number }) {
 
   const creatorModeMut = useMutation({
     mutationFn: () => apiRequest("PATCH", "/api/community/profile", { creator_mode: true }).then(r => r.json()),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/users", id] }); toast({ title: "Creator mode activated!" }); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/users", id] }); toast({ title: "Creator mode activated! Your creator page is live." }); },
+    onError: () => toast({ title: "Error", variant: "destructive" }),
+  });
+
+  const disableCreatorMut = useMutation({
+    mutationFn: () => apiRequest("PATCH", "/api/community/profile", { creator_mode: false }).then(r => r.json()),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/users", id] });
+      toast({
+        title: "Creator mode paused",
+        description: "Your settings and social links are saved. Re-enable anytime to bring it back.",
+      });
+    },
     onError: () => toast({ title: "Error", variant: "destructive" }),
   });
 
@@ -816,14 +828,48 @@ export default function ProfilePage({ id }: { id: number }) {
                       </Button>
                     )}
                   </div>
-                  {/* Row 2: subtle link to open the cover crop modal */}
-                  <button
-                    type="button"
-                    onClick={() => setChangeCoverOpen(true)}
-                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
-                  >
-                    <ImageIcon className="w-3.5 h-3.5" /> Change cover photo
-                  </button>
+                  {/* Row 2: creator page link + disable, or cover photo link */}
+                  {user.creator_mode ? (
+                    <div className="flex flex-col items-end gap-1">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab("posts")}
+                          className="text-xs text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                          data-testid="btn-view-creator-page"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" /> View Creator Page
+                        </button>
+                        <span className="text-muted-foreground/40">·</span>
+                        <button
+                          type="button"
+                          onClick={() => disableCreatorMut.mutate()}
+                          disabled={disableCreatorMut.isPending}
+                          className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1 transition-colors disabled:opacity-50"
+                          data-testid="btn-disable-creator"
+                        >
+                          {disableCreatorMut.isPending
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : <><EyeOff className="w-3 h-3" /> Disable</>}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setChangeCoverOpen(true)}
+                        className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                      >
+                        <ImageIcon className="w-3.5 h-3.5" /> Change cover photo
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setChangeCoverOpen(true)}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5" /> Change cover photo
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="flex gap-2 shrink-0">
