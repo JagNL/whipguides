@@ -63,16 +63,8 @@ export default defineConfig({
           if (id.includes("node_modules/@tanstack")) {
             return "vendor-query";
           }
-          // Recharts — only used in Admin, lazy-loaded anyway
-          if (id.includes("node_modules/recharts") ||
-              id.includes("node_modules/d3-")) {
-            return "vendor-charts";
-          }
-          // date-fns — moderate size, used in a few pages
-          if (id.includes("node_modules/date-fns")) {
-            return "vendor-dates";
-          }
-          // Everything else in node_modules goes to vendor-misc
+          // Everything else in node_modules — keep together to avoid
+          // circular dependency issues between libs like recharts/d3
           if (id.includes("node_modules")) {
             return "vendor-misc";
           }
