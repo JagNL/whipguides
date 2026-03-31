@@ -3,9 +3,58 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/hooks/use-auth";
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, Component, type ReactNode } from "react";
 import Layout from "@/components/Layout";
 import { Skeleton } from "@/components/ui/skeleton";
+
+// ── ChunkLoadErrorBoundary ────────────────────────────────────────────
+// Second line of defence after the vite:preloadError listener in main.tsx.
+// Catches any ChunkLoadError / dynamic import failure that bubbles through
+// React rendering (e.g. when the error fires during component mount).
+// One hard reload per session; the sessionStorage flag prevents infinite loops.
+class ChunkLoadErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isChunkError =
+      msg.includes("Failed to fetch dynamically imported module") ||
+      msg.includes("ChunkLoadError") ||
+      msg.includes("Loading chunk") ||
+      msg.includes("Loading CSS chunk");
+    return isChunkError ? { hasError: true } : null;
+  }
+
+  componentDidCatch(err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isChunkError =
+      msg.includes("Failed to fetch dynamically imported module") ||
+      msg.includes("ChunkLoadError") ||
+      msg.includes("Loading chunk") ||
+      msg.includes("Loading CSS chunk");
+    if (isChunkError) {
+      const key = "__wg_chunk_reload";
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        window.location.reload();
+      }
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      // Reload is already in-flight; show nothing to avoid flash
+      return null;
+    }
+    return this.props.children;
+  }
+}
 
 // ── Eager: tiny pages needed immediately ─────────────────────
 import NotFound from "@/pages/not-found";
@@ -57,6 +106,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        <ChunkLoadErrorBoundary>
         <Suspense fallback={<Layout><PageLoader /></Layout>}>
         <Switch>
             <Route path="/" component={() => <Layout><HomePage /></Layout>} />
@@ -93,6 +143,7 @@ export default function App() {
             <Route component={NotFound} />
         </Switch>
         </Suspense>
+        </ChunkLoadErrorBoundary>
         <Toaster />
       </AuthProvider>
     </QueryClientProvider>
