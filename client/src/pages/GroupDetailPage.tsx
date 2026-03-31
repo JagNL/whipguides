@@ -959,8 +959,17 @@ function JoinRequestsPanel({ groupId }: { groupId: number }) {
       <div className="space-y-2">
         {requests.map((req: any) => {
           const isExpanded = expandedId === req.id;
-          const answers: any[] = req.answers || [];
-          const riskFlags: string[] = req.riskFlags || [];
+          const answers: any[] = Array.isArray(req.answers)
+            ? req.answers
+            : typeof req.answers === 'string'
+              ? (() => { try { return JSON.parse(req.answers); } catch { return []; } })()
+              : [];
+          // Defensive parse — risk_flags stored as JSON string in DB, ensure it's always an array
+          const riskFlags: string[] = Array.isArray(req.riskFlags)
+            ? req.riskFlags
+            : typeof req.riskFlags === 'string'
+              ? (() => { try { return JSON.parse(req.riskFlags); } catch { return []; } })()
+              : [];
           const accountAgeDays = req.user?.createdAt
             ? Math.floor((Date.now() - new Date(req.user.createdAt).getTime()) / 86400000)
             : null;
