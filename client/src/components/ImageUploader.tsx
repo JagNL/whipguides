@@ -443,6 +443,7 @@ interface CoverCropModalProps {
 export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }: CoverCropModalProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef    = useRef<HTMLImageElement | null>(null);
+  // Internal canvas resolution — high-res output
   const OUT_W = 1200;
   const OUT_H = Math.round(OUT_W / aspectRatio);
 
@@ -454,23 +455,34 @@ export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }
   const lastPos    = useRef({ x: 0, y: 0 });
   const pinchStart = useRef<{ dist: number; zoom: number } | null>(null);
 
+  // Load image and set canvas dimensions ONCE
   useEffect(() => {
     const img = new Image();
-    img.onload = () => { imgRef.current = img; setLoaded(true); setOffset({ x: 0, y: 0 }); setZoom(1); setRotation(0); };
+    img.onload = () => {
+      imgRef.current = img;
+      // Set canvas intrinsic size once here — never reset it in draw()
+      const canvas = canvasRef.current;
+      if (canvas) { canvas.width = OUT_W; canvas.height = OUT_H; }
+      setLoaded(true);
+      setOffset({ x: 0, y: 0 });
+      setZoom(1);
+      setRotation(0);
+    };
     img.src = imageSrc;
-  }, [imageSrc]);
+  }, [imageSrc, OUT_W, OUT_H]);
 
+  // Draw whenever state changes — does NOT reset canvas size
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
-    const img = imgRef.current;
+    const img    = imgRef.current;
     if (!canvas || !img) return;
     const ctx = canvas.getContext("2d")!;
-    canvas.width = OUT_W; canvas.height = OUT_H;
     ctx.clearRect(0, 0, OUT_W, OUT_H);
     const isRot90 = rotation === 90 || rotation === 270;
     const imgW = isRot90 ? img.height : img.width;
     const imgH = isRot90 ? img.width  : img.height;
-    const scale = Math.max(OUT_W / imgW, OUT_H / imgH) * zoom;
+    const baseScale = Math.max(OUT_W / imgW, OUT_H / imgH);
+    const scale = baseScale * zoom;
     const dW = (isRot90 ? img.height : img.width)  * scale;
     const dH = (isRot90 ? img.width  : img.height) * scale;
     ctx.save();
@@ -482,9 +494,9 @@ export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }
 
   useEffect(() => { if (loaded) draw(); }, [loaded, draw]);
 
-  // Attach mousemove + mouseup to window so dragging works even when cursor
-  // leaves the canvas element (common with fast mouse movements).
+  // Window-level mouse listeners — drag works even when cursor leaves canvas
   const onMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
     dragging.current = true;
     lastPos.current = { x: e.clientX, y: e.clientY };
   };
@@ -492,12 +504,15 @@ export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }
     const handleMove = (e: MouseEvent) => {
       if (!dragging.current) return;
       const canvas = canvasRef.current;
-      const s = canvas ? OUT_W / canvas.clientWidth : 1;
-      setOffset(o => ({
-        x: o.x + (e.clientX - lastPos.current.x) * s,
-        y: o.y + (e.clientY - lastPos.current.y) * s,
-      }));
+      if (!canvas) return;
+      // Scale: screen pixels → canvas internal pixels
+      // canvas.clientWidth is the CSS display width (e.g. 460px)
+      // OUT_W is the internal resolution (1200px)
+      const s = OUT_W / canvas.clientWidth;
+      const dx = e.clientX - lastPos.current.x;
+      const dy = e.clientY - lastPos.current.y;
       lastPos.current = { x: e.clientX, y: e.clientY };
+      setOffset(o => ({ x: o.x + dx * s, y: o.y + dy * s }));
     };
     const handleUp = () => { dragging.current = false; };
     window.addEventListener("mousemove", handleMove);
@@ -508,18 +523,32 @@ export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }
     };
   }, [OUT_W]);
   const onMouseUp = () => { dragging.current = false; };
+
   const onTouchStart = (e: React.TouchEvent) => {
-    if (e.touches.length === 1) { dragging.current = true; lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
-    else if (e.touches.length === 2) { const dx = e.touches[0].clientX - e.touches[1].clientX; const dy = e.touches[0].clientY - e.touches[1].clientY; pinchStart.current = { dist: Math.hypot(dx, dy), zoom }; }
+    if (e.touches.length === 1) {
+      dragging.current = true;
+      lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchStart.current = { dist: Math.hypot(dx, dy), zoom };
+    }
   };
   const onTouchMove = (e: React.TouchEvent) => {
     e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const s = OUT_W / canvas.clientWidth;
     if (e.touches.length === 1 && dragging.current) {
-      const s = OUT_W / (canvasRef.current?.clientWidth || 480);
-      setOffset(o => ({ x: o.x + (e.touches[0].clientX - lastPos.current.x) * s, y: o.y + (e.touches[0].clientY - lastPos.current.y) * s }));
+      const dx = e.touches[0].clientX - lastPos.current.x;
+      const dy = e.touches[0].clientY - lastPos.current.y;
       lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      setOffset(o => ({ x: o.x + dx * s, y: o.y + dy * s }));
     } else if (e.touches.length === 2 && pinchStart.current) {
-      const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+      const d = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
       setZoom(Math.min(4, Math.max(0.5, pinchStart.current.zoom * (d / pinchStart.current.dist))));
     }
   };
@@ -539,18 +568,28 @@ export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }
             <X className="w-4 h-4" />
           </button>
         </div>
-        {/* Landscape preview canvas */}
+        {/* Canvas wrapper — CSS controls display size, canvas.width controls resolution */}
         <div className="relative w-full overflow-hidden rounded-xl border border-border bg-muted/20"
           style={{ aspectRatio: String(aspectRatio) }}>
           <canvas
             ref={canvasRef}
-            style={{ width: "100%", height: "100%", cursor: dragging.current ? "grabbing" : "grab", touchAction: "none", display: loaded ? "block" : "none" }}
-            onMouseDown={onMouseDown} onMouseUp={onMouseUp}
-            onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onWheel={onWheel}
+            style={{
+              width: "100%",
+              height: "100%",
+              cursor: "grab",
+              touchAction: "none",
+              display: loaded ? "block" : "none",
+              userSelect: "none",
+            }}
+            onMouseDown={onMouseDown}
+            onMouseUp={onMouseUp}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+            onWheel={onWheel}
           />
           {!loaded && <div className="w-full h-full bg-muted/30 animate-pulse" />}
         </div>
-        {/* Zoom controls */}
         <div className="flex items-center gap-3">
           <button onClick={() => setZoom(z => Math.max(0.5, z - 0.1))} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"><ZoomOut className="w-4 h-4" /></button>
           <input type="range" min={50} max={400} step={1} value={Math.round(zoom * 100)}
