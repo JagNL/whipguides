@@ -917,7 +917,282 @@ function RiskBadge({ score, flags }: { score: number; flags: string[] }) {
   return <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-destructive/15 text-destructive font-semibold" title={flags.join(", ")}>High risk</span>;
 }
 
-function JoinRequestsPanel({ groupId }: { groupId: number }) {
+// ─── Join Request Modal (opened from notification click) ─────
+function JoinRequestModal({
+  groupId, onClose,
+}: {
+  groupId: number;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const [selectedReq, setSelectedReq] = useState<any | null>(null);
+
+  const { data: requests = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["/api/groups", groupId, "join-requests"],
+    queryFn: () => apiRequest("GET", `/api/groups/${groupId}/join-requests`).then(r => r.json()),
+  });
+
+  // Auto-select first request when data loads
+  useEffect(() => {
+    if (requests.length > 0 && !selectedReq) setSelectedReq(requests[0]);
+  }, [requests]);
+
+  const approveMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiRequest("POST", `/api/groups/${groupId}/join-requests/${userId}/approve`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Approved!", description: "Member added to the group." });
+      refetch().then(r => {
+        const remaining = r.data || [];
+        if (remaining.length > 0) setSelectedReq(remaining[0]);
+        else { setSelectedReq(null); onClose(); }
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", groupId] });
+    },
+  });
+
+  const denyMutation = useMutation({
+    mutationFn: (userId: number) =>
+      apiRequest("POST", `/api/groups/${groupId}/join-requests/${userId}/deny`).then(r => r.json()),
+    onSuccess: () => {
+      toast({ title: "Request declined" });
+      refetch().then(r => {
+        const remaining = r.data || [];
+        if (remaining.length > 0) setSelectedReq(remaining[0]);
+        else { setSelectedReq(null); onClose(); }
+      });
+    },
+  });
+
+  const parseArray = (val: any): any[] =>
+    Array.isArray(val) ? val
+    : typeof val === 'string' ? (() => { try { return JSON.parse(val); } catch { return []; } })()
+    : [];
+
+  const riskColor = (score: number) =>
+    score === 0 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
+    : score < 20 ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"
+    : "text-red-400 bg-red-500/10 border-red-500/20";
+
+  const riskLabel = (score: number) =>
+    score === 0 ? "Low Risk" : score < 20 ? "Moderate" : "High Risk";
+
+  const FLAG_LABELS: Record<string, string> = {
+    account_less_than_1_day: "Account < 1 day old",
+    account_less_than_7_days: "Account < 7 days old",
+    account_less_than_30_days: "Account < 30 days old",
+    no_avatar: "No profile photo",
+    no_bio: "No bio",
+    no_location: "No location set",
+    no_display_name: "No display name",
+  };
+
+  return (
+    <Dialog open onOpenChange={v => { if (!v) onClose(); }}>
+      <DialogContent className="max-w-2xl p-0 overflow-hidden">
+        <DialogTitle className="sr-only">Join Requests</DialogTitle>
+        <DialogDescription className="sr-only">Review and manage requests to join your group.</DialogDescription>
+        <div className="flex h-[520px]">
+
+          {/* Left: request list */}
+          <div className="w-56 shrink-0 border-r border-border bg-secondary/30 flex flex-col">
+            <div className="px-4 py-3 border-b border-border">
+              <h2 className="text-sm font-bold">Join Requests</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {isLoading ? "Loading…" : `${requests.length} pending`}
+              </p>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {isLoading ? (
+                <div className="p-4 space-y-2">
+                  {[1,2,3].map(i => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+                </div>
+              ) : requests.length === 0 ? (
+                <div className="p-4 text-center text-xs text-muted-foreground py-8">
+                  <UserPlus className="w-6 h-6 mx-auto mb-2 opacity-30" />
+                  No pending requests
+                </div>
+              ) : (
+                requests.map((req: any) => {
+                  const score = req.riskScore || 0;
+                  const isSelected = selectedReq?.id === req.id;
+                  return (
+                    <button
+                      key={req.id}
+                      onClick={() => setSelectedReq(req)}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors border-b border-border/50 ${
+                        isSelected ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/40"
+                      }`}
+                    >
+                      <Avatar className="w-8 h-8 shrink-0">
+                        <AvatarImage src={req.user?.avatar} />
+                        <AvatarFallback className="text-xs bg-primary/20 text-primary">
+                          {(req.user?.displayName || req.user?.username || "?")[0].toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold truncate">{req.user?.displayName || req.user?.username}</p>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                          riskColor(score)
+                        }`}>{riskLabel(score)}</span>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right: detail pane */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {!selectedReq ? (
+              <div className="flex-1 flex items-center justify-center text-muted-foreground">
+                <p className="text-sm">Select a request to review</p>
+              </div>
+            ) : (() => {
+              const req = selectedReq;
+              const answers = parseArray(req.answers);
+              const flags = parseArray(req.riskFlags);
+              const score = req.riskScore || 0;
+              const ageDays = req.user?.createdAt
+                ? Math.floor((Date.now() - new Date(req.user.createdAt).getTime()) / 86400000)
+                : null;
+              const isPending = approveMutation.isPending || denyMutation.isPending;
+
+              return (
+                <div className="flex flex-col h-full">
+                  {/* Requester header */}
+                  <div className="p-5 border-b border-border">
+                    <div className="flex items-start gap-4">
+                      <Avatar className="w-14 h-14 shrink-0 border-2 border-border">
+                        <AvatarImage src={req.user?.avatar} />
+                        <AvatarFallback className="text-xl bg-primary/20 text-primary font-bold">
+                          {(req.user?.displayName || req.user?.username || "?")[0].toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-base">{req.user?.displayName || req.user?.username}</h3>
+                          {req.user?.verified && <ShieldCheck className="w-4 h-4 text-primary shrink-0" />}
+                          {req.user?.phoneVerified && (
+                            <span className="text-[10px] bg-blue-500/15 text-blue-400 border border-blue-500/20 font-bold px-1.5 py-0.5 rounded-full">📱 Phone verified</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">@{req.user?.username}</p>
+                        <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground flex-wrap">
+                          {ageDays !== null && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              Account {ageDays < 1 ? "less than a day" : `${ageDays} day${ageDays !== 1 ? 's' : ''}`} old
+                            </span>
+                          )}
+                          {req.user?.location && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{req.user.location}</span>}
+                        </div>
+                      </div>
+                      {/* Risk score badge */}
+                      <div className={`shrink-0 text-center px-3 py-2 rounded-xl border font-bold ${
+                        riskColor(score)
+                      }`}>
+                        <div className="text-lg leading-none">{score}</div>
+                        <div className="text-[10px] mt-0.5">{riskLabel(score)}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Scrollable body */}
+                  <div className="flex-1 overflow-y-auto p-5 space-y-4">
+
+                    {/* Risk flags */}
+                    {flags.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-yellow-400" /> Risk factors
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {flags.map((f: string) => (
+                            <span key={f} className="text-xs bg-yellow-500/10 border border-yellow-500/20 text-yellow-400 px-2 py-1 rounded-lg">
+                              {FLAG_LABELS[f] || f.replace(/_/g, " ")}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Bio */}
+                    {req.user?.bio && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground mb-1">Bio</p>
+                        <p className="text-sm text-foreground/80">{req.user.bio}</p>
+                      </div>
+                    )}
+
+                    {/* Intro message */}
+                    {req.message && (
+                      <div className="bg-secondary rounded-xl p-3">
+                        <p className="text-xs font-semibold text-muted-foreground mb-1">Intro message</p>
+                        <p className="text-sm italic">"{req.message}"</p>
+                      </div>
+                    )}
+
+                    {/* Membership answers */}
+                    {answers.length > 0 && (
+                      <div className="space-y-3">
+                        <p className="text-xs font-semibold text-muted-foreground">Membership questions</p>
+                        {answers.map((a: any, i: number) => (
+                          <div key={i} className="bg-secondary rounded-xl p-3">
+                            <p className="text-xs font-semibold mb-1">{a.question}</p>
+                            <p className="text-sm">
+                              {a.answer || <span className="text-muted-foreground italic">No answer provided</span>}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* No details */}
+                    {!req.message && answers.length === 0 && flags.length === 0 && (
+                      <p className="text-sm text-muted-foreground text-center py-4">
+                        No additional details provided.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Action footer */}
+                  <div className="p-4 border-t border-border flex items-center gap-3">
+                    <Button
+                      className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white gap-2"
+                      onClick={() => approveMutation.mutate(req.userId)}
+                      disabled={isPending}
+                      data-testid="button-modal-approve"
+                    >
+                      {approveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                      Approve
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1 border-red-500/40 text-red-400 hover:bg-red-500/10 gap-2"
+                      onClick={() => denyMutation.mutate(req.userId)}
+                      disabled={isPending}
+                      data-testid="button-modal-deny"
+                    >
+                      {denyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
+                      Decline
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={onClose} className="shrink-0">
+                      Close
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function JoinRequestsPanel({ groupId, onOpenModal }: { groupId: number; onOpenModal: () => void }) {
   const { toast } = useToast();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -951,11 +1226,19 @@ function JoinRequestsPanel({ groupId }: { groupId: number }) {
 
   return (
     <div className="bg-card border border-primary/30 rounded-xl p-4">
-      <h3 className="font-semibold text-sm flex items-center gap-2 mb-3">
-        <UserPlus className="w-4 h-4 text-primary" />
-        Join Requests
-        <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">{requests.length}</span>
-      </h3>
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="font-semibold text-sm flex items-center gap-1.5 flex-1">
+          <UserPlus className="w-4 h-4 text-primary" />
+          Join Requests
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/15 text-primary">{requests.length}</span>
+        </h3>
+        <button
+          onClick={onOpenModal}
+          className="text-xs text-primary hover:text-primary/80 font-semibold transition-colors shrink-0"
+        >
+          Review all →
+        </button>
+      </div>
       <div className="space-y-2">
         {requests.map((req: any) => {
           const isExpanded = expandedId === req.id;
@@ -1323,6 +1606,12 @@ export default function GroupDetailPage({ id }: { id: number }) {
   // Settings sheet + delete dialog state
   const [mainTab, setMainTab] = useState<"posts" | "events" | "guides" | "members">("posts");
 
+  // Auto-open join request modal when navigated from a join_request notification
+  const [joinRequestModalOpen, setJoinRequestModalOpen] = useState(() =>
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("action") === "join-requests"
+  );
+
   // Members list — loaded when Members tab is active
   const { data: membersList = [], isLoading: membersListLoading } = useQuery<any[]>({
     queryKey: ["/api/groups", id, "members"],
@@ -1671,12 +1960,31 @@ export default function GroupDetailPage({ id }: { id: number }) {
         {/* Sidebar */}
         <div className="hidden lg:block w-72 shrink-0 space-y-4 sticky top-20">
           {/* Join requests panel — owner only */}
-          {isOwner && group.private && <JoinRequestsPanel groupId={id} />}
+          {isOwner && group.private && (
+            <JoinRequestsPanel
+              groupId={id}
+              onOpenModal={() => setJoinRequestModalOpen(true)}
+            />
+          )}
           <GroupRulesPanel groupId={id} />
           <GroupSearchPanel groupId={id} />
           <RelatedGuides category={group.category} />
         </div>
       </div>
+
+      {/* ── Join Request Modal ── */}
+      {joinRequestModalOpen && isOwner && (
+        <JoinRequestModal
+          groupId={id}
+          onClose={() => {
+            setJoinRequestModalOpen(false);
+            // Remove ?action= from URL cleanly without reload
+            const url = new URL(window.location.href);
+            url.searchParams.delete("action");
+            window.history.replaceState(null, "", url.pathname + (url.search || ""));
+          }}
+        />
+      )}
 
       {/* ── Group Settings Sheet ── */}
       {settingsOpen && group && (

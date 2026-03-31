@@ -67,7 +67,9 @@ function linkFor(notif: any): string {
   switch (notif.linkType) {
     case "listing":  return `/listing/${notif.linkId}`;
     case "guide":    return `/guides/${notif.linkId}`;
-    case "group":    return `/groups/${notif.linkId}`;
+    case "group":    return notif.type === "join_request"
+      ? `/groups/${notif.linkId}?action=join-requests`
+      : `/groups/${notif.linkId}`;
     case "message":  return `/messages`;
     case "profile":  return `/profile/${notif.linkId}`;
     case "project":  return `/projects/${notif.linkId}`;
