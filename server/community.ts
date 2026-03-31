@@ -262,6 +262,8 @@ async function checkAndAwardBadges(userId: number) {
     { count: annotations },
     { count: seriesCount },
     { count: eventRsvps },
+    { count: completedProjects },
+    { data: postLikesData },
   ] = await Promise.all([
     sb.from("listings").select("*", { count: "exact", head: true }).eq("seller_id", userId).eq("status", "sold"),
     sb.from("listings").select("*", { count: "exact", head: true }).eq("seller_id", userId),
@@ -276,6 +278,10 @@ async function checkAndAwardBadges(userId: number) {
     sb.from("guides").select("*", { count: "exact", head: true }).eq("author_id", userId).not("steps", "eq", "[]"),
     sb.from("guide_series").select("*", { count: "exact", head: true }).eq("author_id", userId),
     sb.from("event_rsvps").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("status", "going"),
+    // Completed projects (status = 'completed' or 'complete')
+    sb.from("projects").select("*", { count: "exact", head: true }).eq("user_id", userId).in("status", ["completed", "complete", "done"]),
+    // Total likes received on user's posts (sum of likes column)
+    sb.from("posts").select("likes").eq("author_id", userId),
   ]);
 
   const awards: string[] = [];
@@ -336,6 +342,13 @@ async function checkAndAwardBadges(userId: number) {
     (groups?.length ?? 0) > 0,
   ].filter(Boolean).length;
   if (activeAreas >= 3) awards.push("multi_vertical");
+
+  // Completed projects
+  if ((completedProjects ?? 0) >= 1) awards.push("project_complete");
+
+  // Post likes — sum the likes column across all user posts
+  const totalPostLikes = (postLikesData ?? []).reduce((sum: number, p: any) => sum + (p.likes || 0), 0);
+  if (totalPostLikes >= 10) awards.push("post_liked_10");
 
   for (const key of awards) await awardBadge(userId, key);
 }

@@ -71,7 +71,9 @@ function linkFor(notif: any): string {
       ? `/groups/${notif.linkId}?action=join-requests`
       : `/groups/${notif.linkId}`;
     case "message":  return `/messages`;
-    case "profile":  return `/profile/${notif.linkId}`;
+    case "profile":  return notif.type === "badge_awarded"
+      ? `/profile/${notif.linkId}?tab=badges`
+      : `/profile/${notif.linkId}`;
     case "project":  return `/projects/${notif.linkId}`;
     case "event":          return `/events`;
     case "post":            return notif.linkId ? `/feed` : `/feed`;

@@ -28,7 +28,7 @@ import { useState as useS } from "react";
 import { useSEO } from "@/hooks/use-seo";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation, Link } from "wouter";
+import { useLocation, useSearch, Link } from "wouter";
 import ReportButton from "@/components/ReportButton";
 import { guideUrl, profileUrl, timeAgo } from "@/lib/utils";
 
@@ -518,6 +518,7 @@ function CoverPickerModal({
 // ── Main Component ────────────────────────────────────────────
 export default function ProfilePage({ id }: { id: number }) {
   const [activeTab, setActiveTab] = useState<Tab>("listings");
+  const search = useSearch();
   const [editOpen, setEditOpen] = useState(false);
   const [editDialogTab, setEditDialogTab] = useState<"profile" | "creator">("profile");
   const [addGarageOpen, setAddGarageOpen] = useState(false);
@@ -529,6 +530,17 @@ export default function ProfilePage({ id }: { id: number }) {
   const [, navigate] = useLocation();
   const cfBase = useCfUrl();
   const qc = useQueryClient();
+
+  // ── Deep-link to a specific tab via ?tab=<name> ────────────
+  // Used by badge notifications to land directly on the badges tab.
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const requested = params.get("tab") as Tab | null;
+    const VALID_TABS: Tab[] = ["listings", "guides", "posts", "garage", "projects", "badges", "reviews"];
+    if (requested && VALID_TABS.includes(requested)) {
+      setActiveTab(requested);
+    }
+  }, [search]);
 
   // ── Edit state ─────────────────────────────────────────────
   const [editDisplayName, setEditDisplayName] = useState("");
