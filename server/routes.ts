@@ -430,12 +430,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       memberGroupIds = new Set((memberships || []).map((m: any) => m.group_id));
     }
 
-    const enriched = await Promise.all(groups.map(async g => ({
-      ...g,
-      owner: await storage.getUser(g.ownerId),
-      // isMember: true when user is already in the group (member, admin, or owner)
-      isMember: memberGroupIds.has(g.id),
-    })));
+    const enriched = await Promise.all(groups.map(async g => {
+      // isMember: true when user is in group_members OR is the owner
+      // (owner check is a fallback for groups created before the auto-insert was added)
+      const isMember = memberGroupIds.has(g.id) || (currentUser?.id === g.ownerId);
+
+      // Self-heal: if the owner isn't in group_members yet, insert them now (fire & forget)
+      if (currentUser?.id === g.ownerId && !memberGroupIds.has(g.id)) {
+        supabaseAdminForRoutes
+          .from("group_members")
+          .upsert({ user_id: g.ownerId, group_id: g.id, role: "owner" }, { onConflict: "user_id,group_id" })
+          .then(() => null, () => null);
+      }
+
+      return {
+        ...g,
+        owner: await storage.getUser(g.ownerId),
+        isMember,
+      };
+    }));
     return res.json(enriched);
   });
 

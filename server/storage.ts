@@ -546,7 +546,17 @@ export class SupabaseStorage implements IStorage {
 
   async isMember(groupId: number, userId: number): Promise<boolean> {
     const { data } = await supabaseAdmin.from("group_members").select("user_id").eq("user_id", userId).eq("group_id", groupId).single();
-    return !!data;
+    if (data) return true;
+    // Fallback: check if user is the group owner (handles groups created before auto-insert)
+    const { data: grp } = await supabaseAdmin.from("groups").select("owner_id").eq("id", groupId).single();
+    if (grp?.owner_id === userId) {
+      // Self-heal: insert owner into group_members so this fallback isn't needed next time
+      await supabaseAdmin.from("group_members")
+        .upsert({ user_id: userId, group_id: groupId, role: "owner" }, { onConflict: "user_id,group_id" })
+        .then(() => null, () => null);
+      return true;
+    }
+    return false;
   }
 
   async likePost(postId: number, userId: number): Promise<{ liked: boolean; likes: number }> {
