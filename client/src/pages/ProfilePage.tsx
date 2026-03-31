@@ -400,6 +400,7 @@ export default function ProfilePage({ id }: { id: number }) {
   const [editDialogTab, setEditDialogTab] = useState<"profile" | "creator">("profile");
   const [addGarageOpen, setAddGarageOpen] = useState(false);
   const [startProjectOpen, setStartProjectOpen] = useState(false);
+  const [changeCoverOpen, setChangeCoverOpen] = useState(false);
   const { user: currentUser, refreshUser } = useAuth();
   const { toast } = useToast();
   const isOwnProfile = currentUser?.id === id;
@@ -592,19 +593,48 @@ export default function ProfilePage({ id }: { id: number }) {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6">
-      {/* Cover image */}
-      <div className="relative h-36 rounded-t-xl overflow-hidden bg-gradient-to-br from-primary/20 via-primary/5 to-secondary">
+      {/* Cover image — clickable for owner to change */}
+      <div
+        className={`relative h-36 rounded-t-xl overflow-hidden bg-gradient-to-br from-primary/20 via-primary/5 to-secondary ${isOwnProfile ? "cursor-pointer group" : ""}`}
+        onClick={() => isOwnProfile && setChangeCoverOpen(true)}
+      >
         {coverSrc && <img src={coverSrc} alt="" className="w-full h-full object-cover" />}
         <div className="absolute inset-0 bg-gradient-to-t from-background/60 to-transparent" />
-        {/* Cover hover hint — subtle camera icon overlay */}
         {isOwnProfile && (
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity bg-black/20 rounded-t-xl pointer-events-none">
-            <div className="flex items-center gap-1.5 text-white text-xs font-medium bg-black/50 px-3 py-1.5 rounded-full">
-              <ImageIcon className="w-3.5 h-3.5" /> Click below to change cover
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30 rounded-t-xl">
+            <div className="flex items-center gap-1.5 text-white text-xs font-medium bg-black/60 px-3 py-1.5 rounded-full">
+              <ImageIcon className="w-3.5 h-3.5" /> Change cover photo
             </div>
           </div>
         )}
       </div>
+
+      {/* Cover photo change — modal with full rectangular crop/zoom UI */}
+      {changeCoverOpen && (
+        <Dialog open onOpenChange={v => { if (!v) setChangeCoverOpen(false); }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-primary" /> Change Cover Photo
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">Click the image below to pick a new cover photo. Drag and zoom to frame it perfectly.</p>
+              <CoverUploader
+                currentUrl={coverSrc || null}
+                aspectRatio={3}
+                label="Click to upload a cover photo"
+                onUpload={async (imgId, cdnUrl) => {
+                  const url = cdnUrl || imgId;
+                  await apiRequest("PATCH", `/api/users/${id}`, { cover_image: url });
+                  qc.invalidateQueries({ queryKey: ["/api/users", id] });
+                  setChangeCoverOpen(false);
+                }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Profile card */}
       <div className="bg-card rounded-b-xl border-x border-b border-border px-6 pb-6 mb-6">
@@ -666,21 +696,14 @@ export default function ProfilePage({ id }: { id: number }) {
                       </Button>
                     )}
                   </div>
-                  {/* Row 2: Change cover — rectangular crop + instant save */}
-                  <CoverUploader
-                    currentUrl={user.cover_image
-                      ? (user.cover_image.startsWith('http') || user.cover_image.startsWith('data:')
-                          ? user.cover_image
-                          : cfBase ? `${cfBase}/${user.cover_image}/public` : null)
-                      : null}
-                    aspectRatio={3}
-                    label="Change cover photo"
-                    onUpload={async (imgId, cdnUrl) => {
-                      const url = cdnUrl || imgId;
-                      await apiRequest("PATCH", `/api/users/${id}`, { cover_image: url });
-                      qc.invalidateQueries({ queryKey: ["/api/users", id] });
-                    }}
-                  />
+                  {/* Row 2: subtle link to open the cover crop modal */}
+                  <button
+                    type="button"
+                    onClick={() => setChangeCoverOpen(true)}
+                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5" /> Change cover photo
+                  </button>
                 </div>
               ) : (
                 <div className="flex gap-2 shrink-0">
