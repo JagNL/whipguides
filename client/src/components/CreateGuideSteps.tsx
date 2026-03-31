@@ -9,7 +9,7 @@ import { AvatarUploader } from "@/components/ImageUploader";
 import ImageUploader from "@/components/ImageUploader";
 import { AnnotationEditorDialog } from "@/components/GuideAnnotations";
 import type { Annotation } from "@/components/GuideAnnotations";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
 import {
   Plus, Trash2, CheckCircle2, ScanLine, Link2,
   Car, Waves, Target, Music2, Cpu, Trophy, Wrench,
@@ -189,7 +189,7 @@ export function StepEditor({ steps, onUpdate, onAdd, onRemove, onAnnotate }: {
             {(step.imageUrls ?? []).length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {(step.imageUrls ?? []).map((url: string, imgIdx: number) => {
-                  const resolved = url.startsWith("http") || url.startsWith("data:") ? url : `${cfUrl}/${url}/public`;
+                  const resolved = cfImageUrl(cfUrl, url) || url;
                   const pins = (step.annotations ?? []).filter((a: any) => a.imageUrl === resolved).length;
                   return (
                     <button key={imgIdx} type="button" onClick={() => onAnnotate({ stepIdx: idx, imageUrl: resolved })}

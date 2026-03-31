@@ -22,7 +22,7 @@ import {
   VerticalPicker, SubjectDetails, StepEditor,
   EmbedBadge, VERTICAL_ICONS,
 } from "@/components/CreateGuideSteps";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
 import { guideUrl } from "@/lib/utils";
 
 const STEPS_LABELS = [
@@ -266,11 +266,7 @@ export default function CreateGuidePage({ guideId }: { guideId?: number }) {
       <div className="space-y-1.5">
         <Label>Cover Image</Label>
         <CoverUploader
-          currentUrl={form.coverImageId
-            ? (form.coverImageId.startsWith('http') || form.coverImageId.startsWith('data:')
-                ? form.coverImageId
-                : cfUrl ? `${cfUrl}/${form.coverImageId}/public` : null)
-            : null}
+          currentUrl={cfImageUrl(cfUrl, form.coverImageId)}
           aspectRatio={16 / 9}
           label="Upload cover image"
           onUpload={(id, _previewUrl) => update("coverImageId", id)}

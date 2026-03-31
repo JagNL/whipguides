@@ -14,7 +14,7 @@ import {
   Car, Waves, Target, Music2, Cpu, Trophy, CheckCircle2, BarChart2,
   Star, Users,
 } from "lucide-react";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
 import type { Guide } from "@/../../server/storage";
 import { GUIDE_VERTICALS } from "@/lib/guide-verticals";
 import { guideUrl } from "@/lib/utils";
@@ -64,7 +64,7 @@ function QualityBadge({ score, verified }: { score?: number; verified?: boolean 
 
 function GuideCard({ guide }: { guide: any }) {
   const cfUrl = useCfUrl();
-  const coverSrc = guide.coverImageId && cfUrl ? `${cfUrl}/${guide.coverImageId}/public` : null;
+  const coverSrc = cfImageUrl(cfUrl, guide.coverImageId);
 
   return (
     <Link href={guideUrl(guide.id, guide.title)}>
@@ -144,7 +144,7 @@ function GuideCardSkeleton() {
 
 function SeriesCard({ series }: { series: any }) {
   const cfUrl = useCfUrl();
-  const cover = series.coverImageId && cfUrl ? `${cfUrl}/${series.coverImageId}/public` : null;
+  const cover = cfImageUrl(cfUrl, series.coverImageId);
   return (
     <Link href={`/guide-series/${series.id}`}>
       <div className="group bg-card border border-border rounded-xl overflow-hidden hover:border-primary/40 transition-all cursor-pointer flex gap-4 p-4">

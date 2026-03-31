@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -299,7 +299,7 @@ export function BusinessPage({ slug }: BusinessPageProps) {
   const resolveImg = (id: string | null | undefined) => {
     if (!id) return null;
     if (id.startsWith("data:") || id.startsWith("http")) return id;
-    return cfUrl ? `${cfUrl}/${id}/public` : null;
+    return cfImageUrl(cfUrl, id);
   };
   const logoSrc = resolveImg(page.logo_id);
   const coverSrc = resolveImg(page.cover_id);

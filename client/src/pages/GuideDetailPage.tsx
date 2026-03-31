@@ -19,7 +19,7 @@ import {
   ScanLine, ChevronRight, Circle, DollarSign, BarChart2,
   ThumbsUp, ShieldCheck, Instagram, ExternalLink,
 } from "lucide-react";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
 import { AnnotatedImage, TorqueSpecsTable, HardwareList } from "@/components/GuideAnnotations";
 import type { Annotation } from "@/components/GuideAnnotations";
 import { PartsIntelligence } from "@/components/PartsIntelligence";
@@ -391,10 +391,7 @@ export default function GuideDetailPage({ id }: { id: number }) {
     );
   }
 
-  // Handle both raw R2 imageId and full CDN URLs (legacy guides saved with full URL)
-  const coverSrc = guide.coverImageId
-    ? (guide.coverImageId.startsWith("http") ? guide.coverImageId : `${cfUrl}/${guide.coverImageId}/public`)
-    : null;
+  const coverSrc = cfImageUrl(cfUrl, guide.coverImageId);
   const verticalDef = g.vertical ? GUIDE_VERTICALS.find(v => v.key === g.vertical) : null;
   const VerticalIcon = verticalDef ? (VERTICAL_ICONS[verticalDef.icon] ?? Wrench) : null;
 
@@ -622,7 +619,7 @@ export default function GuideDetailPage({ id }: { id: number }) {
                       {step.imageUrls && step.imageUrls.length > 0 && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                           {step.imageUrls.map((url, imgIdx) => {
-                            const resolvedUrl = url.startsWith("http") || url.startsWith("data:") ? url : `${cfUrl}/${url}/public`;
+                            const resolvedUrl = cfImageUrl(cfUrl, url) || url;
                             const hasAnn = stepAnnotations.some(a => a.imageUrl === resolvedUrl);
                             return hasAnn ? (
                               <AnnotatedImage key={imgIdx} imageUrl={resolvedUrl} annotations={stepAnnotations} stepIndex={idx} />

@@ -40,7 +40,9 @@ export function cfImageUrl(cfBase: string, imageId: string | null | undefined): 
   // Already a full URL (data URI or https) — return as-is
   if (imageId.startsWith("data:") || imageId.startsWith("http")) return imageId;
   if (!cfBase) return null;
-  return `${cfBase}/${imageId}/public`;
+  // R2 public bucket URLs don't use the /public suffix (that's Cloudflare Images CDN only)
+  const isR2 = cfBase.includes("r2.dev") || cfBase.includes("r2.cloudflarestorage");
+  return isR2 ? `${cfBase}/${imageId}` : `${cfBase}/${imageId}/public`;
 }
 
 /** Resolve any image reference to a displayable URL. */

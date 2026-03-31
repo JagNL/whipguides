@@ -2,7 +2,7 @@ import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MapPin, Star, Users, CheckCircle, Building2 } from "lucide-react";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
 
 interface BusinessCardProps {
   page: {
@@ -43,11 +43,11 @@ export function BusinessCard({ page, compact = false }: BusinessCardProps) {
   const cfUrl = useCfUrl();
 
   const logoSrc = page.logo_id
-    ? (cfUrl ? `${cfUrl}/${page.logo_id}/public` : page.logo_id)
+    ? (cfImageUrl(cfUrl, page.logo_id) || page.logo_id)
     : null;
 
   const coverSrc = page.cover_id
-    ? (cfUrl ? `${cfUrl}/${page.cover_id}/public` : page.cover_id)
+    ? (cfImageUrl(cfUrl, page.cover_id) || page.cover_id)
     : null;
 
   const catClass = CATEGORY_COLORS[page.category] || CATEGORY_COLORS["General"];

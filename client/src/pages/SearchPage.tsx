@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
 import {
   Search, Car, Users, BookOpen, User, MessageSquare,
   Star, MapPin, Clock, Wrench, ChevronRight, TrendingUp, Zap,
@@ -43,7 +43,7 @@ function ResultCount({ n, label }: { n: number; label: string }) {
 function ListingResult({ l }: { l: any }) {
   const cfUrl = useCfUrl();
   const img = l.images?.[0]
-    ? (l.images[0].startsWith("http") ? l.images[0] : cfUrl ? `${cfUrl}/${l.images[0]}/public` : null)
+    ? cfImageUrl(cfUrl, l.images[0])
     : null;
   return (
     <Link href={listingUrl(l.id, l.title)}>

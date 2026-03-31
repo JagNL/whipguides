@@ -3,7 +3,7 @@
  * Used in PostCard and PostComposer preview.
  */
 import { Link } from "wouter";
-import { useCfUrl } from "@/hooks/use-cf-url";
+import { useCfUrl, cfImageUrl } from "@/hooks/use-cf-url";
 import { BookOpen, Clock, Wrench, ChevronRight, Car } from "lucide-react";
 import { guideUrl } from "@/lib/utils";
 
@@ -36,9 +36,7 @@ const difficultyColors: Record<string, string> = {
 
 export function GuideEmbedCard({ guide, clickable = true }: GuideEmbedCardProps) {
   const cfUrl = useCfUrl();
-  const coverSrc = guide.coverImageId
-    ? (guide.coverImageId.startsWith("http") ? guide.coverImageId : cfUrl ? `${cfUrl}/${guide.coverImageId}/public` : null)
-    : null;
+  const coverSrc = cfImageUrl(cfUrl, guide.coverImageId);
 
   const year = guide.vehicleYearStart === guide.vehicleYearEnd
     ? guide.vehicleYearStart

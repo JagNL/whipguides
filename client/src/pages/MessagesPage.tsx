@@ -16,7 +16,7 @@ import {
   CheckCircle2, XCircle, AlertCircle, User,
 } from "lucide-react";
 import { cn, formatPrice, profileUrl, timeAgo } from "@/lib/utils";
-import { useCfUrl, useAppConfig } from "@/hooks/use-cf-url";
+import { useCfUrl, useAppConfig, cfImageUrl } from "@/hooks/use-cf-url";
 
 // Realtime client is initialised lazily per-conversation using config from /api/config
 let _rtClient: ReturnType<typeof createClient> | null = null;
@@ -80,7 +80,7 @@ function ListingContextCard({ listing, onView }: { listing: any; onView: () => v
   const imgSrc = listing.images?.[0]
     ? (listing.images[0].startsWith("http")
         ? listing.images[0]
-        : cfUrl ? `${cfUrl}/${listing.images[0]}/public` : null)
+        : cfImageUrl(cfUrl, listing.images[0]))
     : null;
 
   return (
