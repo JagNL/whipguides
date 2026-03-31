@@ -5,6 +5,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { startCronJobs } from "./cron";
 import { syncSuperAdminRoles } from "./admin";
+import { runMigrations } from "./migrations";
 import { createServer } from "http";
 
 const app = express();
@@ -125,6 +126,10 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      // Run pending DB migrations (idempotent, fire & forget)
+      runMigrations().catch(err =>
+        console.warn("[startup] migrations error:", err)
+      );
       // Sync owner emails to super_admin DB role (idempotent)
       syncSuperAdminRoles().catch(err =>
         console.warn("[startup] syncSuperAdminRoles error:", err)

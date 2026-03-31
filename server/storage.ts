@@ -607,19 +607,31 @@ export class SupabaseStorage implements IStorage {
 
     let { data, error } = await supabaseAdmin.from("posts").insert(insertData).select().single();
 
-    // Supabase schema cache can get stale after migrations — if a column isn't found,
-    // retry without the optional columns so the post still goes through.
+    // Supabase schema cache can get stale after migrations.
+    // If a specific optional column is missing, retry without only THAT column.
+    // Priority: keep guide_id (it's critical) — only drop video columns if they're the culprit.
     if (error && (error.message?.includes("schema cache") || error.message?.includes("column") || error.message?.includes("Could not find"))) {
-      console.warn("[createPost] Schema cache error, retrying without optional columns:", error.message);
+      console.warn("[createPost] Schema cache error, retrying:", error.message);
+      // Drop only video columns on retry (guide_id migration runs at startup now)
       const fallback: any = {
         group_id: insertData.group_id,
         author_id: insertData.author_id,
         content: insertData.content,
         images: insertData.images,
       };
+      // Keep guide_id if it was set — migration should have run
+      if (insertData.guide_id != null) fallback.guide_id = insertData.guide_id;
       const retry = await supabaseAdmin.from("posts").insert(fallback).select().single();
       data = retry.data;
       error = retry.error;
+      // If guide_id is still causing an error, drop it and post anyway
+      if (error && fallback.guide_id != null) {
+        console.warn("[createPost] guide_id still failing, posting without it:", error.message);
+        delete fallback.guide_id;
+        const retry2 = await supabaseAdmin.from("posts").insert(fallback).select().single();
+        data = retry2.data;
+        error = retry2.error;
+      }
     }
 
     if (error) throw new Error(error.message);
