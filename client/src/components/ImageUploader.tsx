@@ -482,13 +482,31 @@ export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }
 
   useEffect(() => { if (loaded) draw(); }, [loaded, draw]);
 
-  const onMouseDown = (e: React.MouseEvent) => { dragging.current = true; lastPos.current = { x: e.clientX, y: e.clientY }; };
-  const onMouseMove = (e: React.MouseEvent) => {
-    if (!dragging.current) return;
-    const s = OUT_W / (canvasRef.current?.clientWidth || 480);
-    setOffset(o => ({ x: o.x + (e.clientX - lastPos.current.x) * s, y: o.y + (e.clientY - lastPos.current.y) * s }));
+  // Attach mousemove + mouseup to window so dragging works even when cursor
+  // leaves the canvas element (common with fast mouse movements).
+  const onMouseDown = (e: React.MouseEvent) => {
+    dragging.current = true;
     lastPos.current = { x: e.clientX, y: e.clientY };
   };
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      const canvas = canvasRef.current;
+      const s = canvas ? OUT_W / canvas.clientWidth : 1;
+      setOffset(o => ({
+        x: o.x + (e.clientX - lastPos.current.x) * s,
+        y: o.y + (e.clientY - lastPos.current.y) * s,
+      }));
+      lastPos.current = { x: e.clientX, y: e.clientY };
+    };
+    const handleUp = () => { dragging.current = false; };
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [OUT_W]);
   const onMouseUp = () => { dragging.current = false; };
   const onTouchStart = (e: React.TouchEvent) => {
     if (e.touches.length === 1) { dragging.current = true; lastPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }
@@ -527,7 +545,7 @@ export function CoverCropModal({ imageSrc, onConfirm, onClose, aspectRatio = 3 }
           <canvas
             ref={canvasRef}
             style={{ width: "100%", height: "100%", cursor: dragging.current ? "grabbing" : "grab", touchAction: "none", display: loaded ? "block" : "none" }}
-            onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+            onMouseDown={onMouseDown} onMouseUp={onMouseUp}
             onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onWheel={onWheel}
           />
           {!loaded && <div className="w-full h-full bg-muted/30 animate-pulse" />}
