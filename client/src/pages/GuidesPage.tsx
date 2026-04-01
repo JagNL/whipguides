@@ -62,9 +62,19 @@ function QualityBadge({ score, verified }: { score?: number; verified?: boolean 
   );
 }
 
+const VEHICLE_VERTICALS = new Set(["powersports", "automotive"]);
+
 function GuideCard({ guide }: { guide: any }) {
   const cfUrl = useCfUrl();
   const coverSrc = cfImageUrl(cfUrl, guide.coverImageId);
+
+  // Build year/make/model string for vehicle-based guides
+  const make  = guide.vehicleMake  || guide.subjectData?.make;
+  const model = guide.vehicleModel || guide.subjectData?.model;
+  const ys    = guide.vehicleYearStart || guide.subjectData?.year_start;
+  const ye    = guide.vehicleYearEnd   || guide.subjectData?.year_end;
+  const year  = ys ? (ys === ye || !ye ? ys : `${ys}–${ye}`) : null;
+  const showVehicle = VEHICLE_VERTICALS.has(guide.vertical) && (make || model);
 
   return (
     <Link href={guideUrl(guide.id, guide.title)}>
@@ -90,6 +100,14 @@ function GuideCard({ guide }: { guide: any }) {
               <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-background/80 text-foreground border border-border backdrop-blur-sm">
                 {guide.category}
               </span>
+            </div>
+          )}
+          {/* Year / Make / Model strip — only for vehicle verticals */}
+          {showVehicle && (
+            <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-black/80 to-transparent">
+              <p className="text-white text-xs font-semibold leading-tight truncate drop-shadow">
+                {[year, make, model].filter(Boolean).join(" ")}
+              </p>
             </div>
           )}
         </div>
