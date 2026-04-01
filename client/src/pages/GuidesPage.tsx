@@ -20,9 +20,9 @@ import { GUIDE_VERTICALS } from "@/lib/guide-verticals";
 import { guideUrl } from "@/lib/utils";
 
 const DIFFICULTIES = [
-  { value: "beginner", label: "Beginner", color: "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" },
-  { value: "intermediate", label: "Intermediate", color: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  { value: "advanced", label: "Advanced", color: "bg-red-500/15 text-red-400 border-red-500/20" },
+  { value: "beginner",     label: "Beginner",     color: "bg-emerald-600 text-white border-emerald-700 shadow-sm" },
+  { value: "intermediate", label: "Intermediate", color: "bg-amber-500  text-white border-amber-600  shadow-sm" },
+  { value: "advanced",     label: "Advanced",     color: "bg-red-600    text-white border-red-700    shadow-sm" },
 ];
 
 const VERTICAL_ICONS: Record<string, React.ElementType> = {
@@ -81,7 +81,7 @@ function GuideCard({ guide }: { guide: any }) {
             </div>
           )}
           <div className="absolute top-3 left-3">
-            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${difficultyBadge(guide.difficulty)}`}>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border backdrop-blur-sm ${difficultyBadge(guide.difficulty)}`}>
               {guide.difficulty}
             </span>
           </div>
