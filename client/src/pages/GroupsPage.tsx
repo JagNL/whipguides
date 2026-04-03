@@ -155,9 +155,19 @@ function GroupCard({ group, compact = false }: { group: any; compact?: boolean }
               <span className="flex items-center gap-1">
                 <Users className="w-3.5 h-3.5" />{(group.memberCount || 0).toLocaleString()} members
               </span>
-              <span className="flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts
-              </span>
+              {group.postsPerDay != null && group.postsPerDay > 0 ? (
+                <span className="flex items-center gap-1" title="Average posts per day (30-day window)">
+                  <TrendingUp className="w-3.5 h-3.5" />
+                  {group.postsPerDay < 1
+                    ? `${Math.round(group.postsPerDay * 7)}/wk`
+                    : `${Number(group.postsPerDay).toFixed(group.postsPerDay >= 10 ? 0 : 1)}/day`
+                  }
+                </span>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts
+                </span>
+              )}
             </div>
             {/* Membership status pill — only shown when user has a relationship to this group */}
             {group.memberRole === "owner" ? (

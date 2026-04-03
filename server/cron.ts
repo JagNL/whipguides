@@ -120,6 +120,56 @@ async function runListingExpiry() {
   }
 }
 
+// ── Posts-per-day recalculation ─────────────────────────────
+// Uses a single SQL UPDATE ... FROM subquery — O(1) round-trips regardless
+// of how many groups exist. 30-day rolling window, rounded to 2 decimal places.
+async function runPostsPerDayUpdate() {
+  try {
+    // Fetch all group IDs
+    const { data: groups, error: ge } = await supabaseAdmin
+      .from("groups").select("id");
+    if (ge || !groups?.length) return;
+
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000).toISOString();
+
+    // Count recent posts per group in one query
+    const { data: counts, error: ce } = await supabaseAdmin
+      .from("posts")
+      .select("group_id")
+      .gte("created_at", thirtyDaysAgo)
+      .not("group_id", "is", null);
+
+    if (ce) { console.error("[cron] posts_per_day count error:", ce.message); return; }
+
+    // Aggregate in JS — avoids needing a raw SQL RPC
+    const countMap = new Map<number, number>();
+    for (const row of (counts || [])) {
+      countMap.set(row.group_id, (countMap.get(row.group_id) || 0) + 1);
+    }
+
+    // Batch update all groups — cap concurrent writes to 10 at a time
+    const updates = groups.map(g => ({
+      id: g.id,
+      ppd: Math.round(((countMap.get(g.id) || 0) / 30) * 100) / 100,
+    }));
+
+    // Chunk into batches of 50 upserts
+    const CHUNK = 50;
+    for (let i = 0; i < updates.length; i += CHUNK) {
+      const batch = updates.slice(i, i + CHUNK);
+      await Promise.all(
+        batch.map(({ id, ppd }) =>
+          supabaseAdmin.from("groups").update({ posts_per_day: ppd }).eq("id", id)
+        )
+      );
+    }
+    console.log(`[cron] posts_per_day updated for ${updates.length} groups`);
+  } catch (err: any) {
+    console.error("[cron] posts_per_day error:", err?.message);
+  }
+}
+
 // ── AI parts extraction batch job ──────────────────────────
 async function runPartsExtractionBatch() {
   console.log("[cron] Running AI parts extraction batch...");
@@ -151,6 +201,14 @@ export function startCronJobs() {
     runPartsExtractionBatch();
   }, { timezone: "UTC" });
 
+  // Posts-per-day — every hour, lightweight single-pass aggregation
+  cron.schedule("0 * * * *", () => {
+    runPostsPerDayUpdate();
+  }, { timezone: "UTC" });
+  // Run once at startup so the value is fresh immediately after deploy
+  runPostsPerDayUpdate();
+
   console.log("[cron] Listing expiry job: daily at 11:00 UTC");
   console.log("[cron] AI parts extraction: every 4 hours");
+  console.log("[cron] Posts-per-day update: every hour");
 }

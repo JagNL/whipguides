@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, real } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, real, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -56,6 +56,7 @@ export const groups = pgTable("groups", {
   coverImage: text(),
   memberCount: integer().default(0),
   postCount: integer().default(0),
+  postsPerDay: numeric({ precision: 6, scale: 2 }).default("0"),
   ownerId: integer().notNull(),
   private: boolean().default(false),
   createdAt: text().notNull(),

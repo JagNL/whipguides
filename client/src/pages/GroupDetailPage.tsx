@@ -1872,7 +1872,19 @@ export default function GroupDetailPage({ id }: { id: number }) {
               <p className="text-muted-foreground text-sm mb-2">{group.description}</p>
               <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                 <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />{(group.memberCount || 0).toLocaleString()} members</span>
-                {canSeePosts && <span className="flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts</span>}
+                {canSeePosts && (
+                  group.postsPerDay != null && group.postsPerDay > 0 ? (
+                    <span className="flex items-center gap-1" title="Average posts per day (30-day window)">
+                      <TrendingUp className="w-3.5 h-3.5" />
+                      {group.postsPerDay < 1
+                        ? `${Math.round((group.postsPerDay as number) * 7)}/wk`
+                        : `${Number(group.postsPerDay).toFixed(group.postsPerDay >= 10 ? 0 : 1)}/day`
+                      }
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts</span>
+                  )
+                )}
                 <Badge className="text-xs">{group.category}</Badge>
                 {group.private && <span className="flex items-center gap-1 text-amber-400"><Lock className="w-3 h-3" /> Private</span>}
               </div>

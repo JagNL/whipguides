@@ -321,6 +321,7 @@ export class SupabaseStorage implements IStorage {
       coverImage: row.cover_image,
       memberCount: row.member_count,
       postCount: row.post_count,
+      postsPerDay: row.posts_per_day != null ? Number(row.posts_per_day) : null,
       ownerId: row.owner_id,
       private: row.is_private ?? row.private ?? false,
       avatar: row.avatar || null,
