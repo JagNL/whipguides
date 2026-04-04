@@ -85,6 +85,19 @@ function recordSearch(term: string) {
 }
 
 // ── Group card ──────────────────────────────────────────────
+/**
+ * Format posts_per_day for display on group cards.
+ * 0.03 → "1 post/mo" | 0.5 → "3.5/wk" | 2.4 → "2.4/day" | 15 → "15/day"
+ */
+export function formatPostsPerDay(ppd: number | null | undefined, fallbackCount?: number): string {
+  if (ppd == null || ppd === 0) return `${(fallbackCount || 0).toLocaleString()} posts`;
+  if (ppd >= 1) return `${ppd >= 10 ? Math.round(ppd) : ppd.toFixed(1)}/day`;
+  const perWeek = ppd * 7;
+  if (perWeek >= 0.5) return `${perWeek >= 10 ? Math.round(perWeek) : perWeek.toFixed(1)}/wk`;
+  const perMonth = ppd * 30;
+  return `${perMonth < 1 ? "< 1" : Math.round(perMonth)} post${Math.round(perMonth) === 1 ? "" : "s"}/mo`;
+}
+
 function GroupCard({ group, compact = false }: { group: any; compact?: boolean }) {
   if (compact) {
     return (
@@ -155,19 +168,10 @@ function GroupCard({ group, compact = false }: { group: any; compact?: boolean }
               <span className="flex items-center gap-1">
                 <Users className="w-3.5 h-3.5" />{(group.memberCount || 0).toLocaleString()} members
               </span>
-              {group.postsPerDay != null && group.postsPerDay > 0 ? (
-                <span className="flex items-center gap-1" title="Average posts per day (30-day window)">
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  {group.postsPerDay < 1
-                    ? `${Math.round(group.postsPerDay * 7)}/wk`
-                    : `${Number(group.postsPerDay).toFixed(group.postsPerDay >= 10 ? 0 : 1)}/day`
-                  }
-                </span>
-              ) : (
-                <span className="flex items-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts
-                </span>
-              )}
+              <span className="flex items-center gap-1" title="Average posts per day (30-day window)">
+                <TrendingUp className="w-3.5 h-3.5" />
+                {formatPostsPerDay(group.postsPerDay, group.postCount)}
+              </span>
             </div>
             {/* Membership status pill — only shown when user has a relationship to this group */}
             {group.memberRole === "owner" ? (

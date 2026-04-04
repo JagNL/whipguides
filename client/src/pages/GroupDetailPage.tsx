@@ -19,6 +19,7 @@ import { VideoUploader, type VideoUploadResult } from "@/components/VideoUploade
 import { VideoPlayer, VideoThumbnail } from "@/components/VideoPlayer";
 import { useAppConfig } from "@/hooks/use-cf-url";
 import { groupUrl, guideUrl, profileUrl, timeAgo } from "@/lib/utils";
+import { formatPostsPerDay } from "@/pages/GroupsPage";
 import {
   Users, MessageSquare, Heart, Share2, Plus,
   MoreHorizontal, TrendingUp, ImageIcon, X, Loader2,
@@ -1873,17 +1874,10 @@ export default function GroupDetailPage({ id }: { id: number }) {
               <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                 <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" />{(group.memberCount || 0).toLocaleString()} members</span>
                 {canSeePosts && (
-                  group.postsPerDay != null && group.postsPerDay > 0 ? (
-                    <span className="flex items-center gap-1" title="Average posts per day (30-day window)">
-                      <TrendingUp className="w-3.5 h-3.5" />
-                      {group.postsPerDay < 1
-                        ? `${Math.round((group.postsPerDay as number) * 7)}/wk`
-                        : `${Number(group.postsPerDay).toFixed(group.postsPerDay >= 10 ? 0 : 1)}/day`
-                      }
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" />{(group.postCount || 0).toLocaleString()} posts</span>
-                  )
+                  <span className="flex items-center gap-1" title="Average posts per day (30-day window)">
+                    <TrendingUp className="w-3.5 h-3.5" />
+                    {formatPostsPerDay(group.postsPerDay, group.postCount)}
+                  </span>
                 )}
                 <Badge className="text-xs">{group.category}</Badge>
                 {group.private && <span className="flex items-center gap-1 text-amber-400"><Lock className="w-3 h-3" /> Private</span>}
